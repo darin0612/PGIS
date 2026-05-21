@@ -36,6 +36,72 @@ MOBILITY_ACCESS_SCORES = {
     "계단을 필수로 거쳐야 함": 0,
 }
 
+SUBWAY_LINES = {
+    "1호선": {
+        "color": "#0052A4",
+        "coordinates": [
+            (37.5547, 126.9706),
+            (37.5657, 126.9768),
+            (37.5703, 126.9831),
+            (37.5704, 126.9920),
+            (37.5709, 127.0019),
+            (37.5714, 127.0107),
+        ],
+    },
+    "2호선": {
+        "color": "#00A84D",
+        "coordinates": [
+            (37.5572, 126.9245),
+            (37.5551, 126.9369),
+            (37.5567, 126.9462),
+            (37.5574, 126.9561),
+            (37.5597, 126.9644),
+            (37.5636, 126.9753),
+            (37.5663, 126.9822),
+            (37.5663, 126.9918),
+            (37.5666, 126.9980),
+            (37.5656, 127.0090),
+            (37.5657, 127.0195),
+            (37.5644, 127.0293),
+            (37.5612, 127.0371),
+            (37.5553, 127.0437),
+            (37.5472, 127.0474),
+            (37.5446, 127.0559),
+            (37.5407, 127.0702),
+            (37.5371, 127.0859),
+            (37.5351, 127.0947),
+            (37.5207, 127.1038),
+            (37.5133, 127.1000),
+            (37.5117, 127.0862),
+            (37.5110, 127.0737),
+            (37.5088, 127.0632),
+            (37.5045, 127.0491),
+            (37.5006, 127.0366),
+            (37.4979, 127.0276),
+            (37.4934, 127.0143),
+            (37.4919, 127.0079),
+            (37.4813, 126.9977),
+            (37.4765, 126.9816),
+        ],
+    },
+    "5호선": {
+        "color": "#996CAC",
+        "coordinates": [
+            (37.5217, 126.9240),
+            (37.5271, 126.9329),
+            (37.5397, 126.9459),
+            (37.5440, 126.9518),
+            (37.5535, 126.9568),
+            (37.5597, 126.9644),
+            (37.5658, 126.9667),
+            (37.5710, 126.9767),
+            (37.5704, 126.9920),
+            (37.5666, 126.9980),
+            (37.5656, 127.0090),
+        ],
+    },
+}
+
 SAMPLE_STATIONS = [
     {"id": "1", "name": "시청역", "line": "1호선", "latitude": 37.5662, "longitude": 126.9769, "accessibility_score": 85, "grade": "B", "last_updated": "2024-01-15", "report_count": 12, "reliability": 85},
     {"id": "2", "name": "을지로입구역", "line": "2호선", "latitude": 37.5663, "longitude": 126.9822, "accessibility_score": 72, "grade": "C", "last_updated": "2024-01-10", "report_count": 8, "reliability": 70},
@@ -119,11 +185,34 @@ def popup_html(station: dict) -> str:
     """
 
 
+def add_subway_line_layers(subway_map: folium.Map) -> None:
+    for line_name, line_info in SUBWAY_LINES.items():
+        layer = folium.FeatureGroup(name=f"{line_name} 노선", show=True)
+        coordinates = line_info["coordinates"]
+        color = line_info["color"]
+        folium.PolyLine(
+            locations=coordinates,
+            color="white",
+            weight=9,
+            opacity=0.85,
+            tooltip=line_name,
+        ).add_to(layer)
+        folium.PolyLine(
+            locations=coordinates,
+            color=color,
+            weight=5,
+            opacity=0.95,
+            tooltip=line_name,
+        ).add_to(layer)
+        layer.add_to(subway_map)
+
+
 def build_map(stations: list[dict], selected_id: str | None) -> folium.Map:
     selected = next((station for station in stations if station["id"] == selected_id), None)
     center = [selected["latitude"], selected["longitude"]] if selected else [37.5665, 126.9780]
     zoom = 15 if selected else 13
     subway_map = folium.Map(location=center, zoom_start=zoom, tiles="CartoDB positron", control_scale=True)
+    add_subway_line_layers(subway_map)
 
     for station in stations:
         folium.Marker(
@@ -138,6 +227,7 @@ def build_map(stations: list[dict], selected_id: str | None) -> folium.Map:
             ),
         ).add_to(subway_map)
 
+    folium.LayerControl(collapsed=True).add_to(subway_map)
     return subway_map
 
 
@@ -175,6 +265,15 @@ def grade_legend() -> None:
     ]:
         st.markdown(
             f'<div class="legend-row"><span style="background:{GRADE_COLORS[grade]}"></span>{label}</div>',
+            unsafe_allow_html=True,
+        )
+
+
+def subway_line_legend() -> None:
+    st.markdown("#### 노선 색상")
+    for line_name, line_info in SUBWAY_LINES.items():
+        st.markdown(
+            f'<div class="legend-row"><span style="background:{line_info["color"]}"></span>{line_name}</div>',
             unsafe_allow_html=True,
         )
 
@@ -263,6 +362,7 @@ with st.sidebar:
 
     station_card(selected_station)
     grade_legend()
+    subway_line_legend()
 
 
 map_col, form_col = st.columns([1.9, 1], gap="large")
