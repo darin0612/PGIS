@@ -123,7 +123,7 @@ def build_map(stations: list[dict], selected_id: str | None) -> folium.Map:
     selected = next((station for station in stations if station["id"] == selected_id), None)
     center = [selected["latitude"], selected["longitude"]] if selected else [37.5665, 126.9780]
     zoom = 15 if selected else 13
-    subway_map = folium.Map(location=center, zoom_start=zoom, tiles="OpenStreetMap", control_scale=True)
+    subway_map = folium.Map(location=center, zoom_start=zoom, tiles="CartoDB positron", control_scale=True)
 
     for station in stations:
         folium.Marker(
