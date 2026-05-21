@@ -277,8 +277,13 @@ with form_col:
         braille_block_damaged = st.checkbox("점자블럭이 훼손되어 있음")
 
         st.markdown("#### 2. 안내 정보")
-        braille_map = st.checkbox("점자 노선도 있음")
-        braille_sign = st.checkbox("점자 안내판 있음")
+        guidance_status = st.radio(
+            "안내시설 상태",
+            ["둘 다 있음", "점자 노선도만 있음", "점자 안내판만 있음", "둘다 없음"],
+            horizontal=False,
+        )
+        braille_map = guidance_status in ["둘 다 있음", "점자 노선도만 있음"]
+        braille_sign = guidance_status in ["둘 다 있음", "점자 안내판만 있음"]
         readability = st.selectbox("가독성", ["없음", "나쁨", "보통", "좋음"])
 
         st.markdown("#### 3. 이동 편의 시설")
@@ -301,6 +306,7 @@ with form_col:
             "braille_block_damaged": braille_block_damaged,
             "braille_map": braille_map,
             "braille_sign": braille_sign,
+            "guidance_status": guidance_status,
             "readability": readability,
             "audio_guidance": audio_guidance,
             "user_rating": user_rating,
