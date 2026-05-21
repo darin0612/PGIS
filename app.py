@@ -22,6 +22,20 @@ GRADE_COLORS = {
     "F": "#6b7280",
 }
 
+MOBILITY_ACCESS_OPTIONS = [
+    "지상까지 엘레베이터로 이동 가능",
+    "지상까지 에스컬레이터로 이동 가능",
+    "지상까지 경사로로 이동 가능",
+    "계단을 필수로 거쳐야 함",
+]
+
+MOBILITY_ACCESS_SCORES = {
+    "지상까지 엘레베이터로 이동 가능": 10,
+    "지상까지 에스컬레이터로 이동 가능": 7,
+    "지상까지 경사로로 이동 가능": 5,
+    "계단을 필수로 거쳐야 함": 0,
+}
+
 SAMPLE_STATIONS = [
     {"id": "1", "name": "시청역", "line": "1호선", "latitude": 37.5662, "longitude": 126.9769, "accessibility_score": 85, "grade": "B", "last_updated": "2024-01-15", "report_count": 12, "reliability": 85},
     {"id": "2", "name": "을지로입구역", "line": "2호선", "latitude": 37.5663, "longitude": 126.9822, "accessibility_score": 72, "grade": "C", "last_updated": "2024-01-10", "report_count": 8, "reliability": 70},
@@ -49,6 +63,8 @@ def get_grade(score: int) -> str:
 
 
 def calculate_accessibility_score(data: dict) -> dict:
+    mobility_access = MOBILITY_ACCESS_SCORES[data["mobility_access"]]
+
     braille_block = 0
     if data["braille_block_installed"]:
         braille_block += 15
@@ -67,9 +83,10 @@ def calculate_accessibility_score(data: dict) -> dict:
     facilities = 10 if data["audio_guidance"] else 0
     hazards = [item.strip() for item in data["hazards"].split(",") if item.strip()]
     usability = max(0, data["user_rating"] * 2 - len(hazards) * 2)
-    total = max(0, min(100, braille_block + guidance + facilities + usability))
+    total = max(0, min(100, mobility_access + braille_block + guidance + facilities + usability))
 
     return {
+        "mobility_access_score": mobility_access,
         "braille_block": braille_block,
         "guidance": guidance,
         "facilities": facilities,
@@ -271,12 +288,19 @@ with form_col:
     st.info(f'{selected_station["name"]} ({selected_station["line"]})')
 
     with st.form("accessibility_report", clear_on_submit=True):
-        st.markdown("#### 1. 점자블럭 정보")
+        st.markdown("#### 1. 이동접근성 정보")
+        mobility_access = st.radio(
+            "지상까지 이동 방식",
+            MOBILITY_ACCESS_OPTIONS,
+            horizontal=False,
+        )
+
+        st.markdown("#### 2. 점자블럭 정보")
         braille_block_installed = st.checkbox("점자블럭이 설치되어 있음")
         braille_block_connected = st.checkbox("점자블럭이 끊김없이 연결되어 있음")
         braille_block_damaged = st.checkbox("점자블럭이 훼손되어 있음")
 
-        st.markdown("#### 2. 안내 정보")
+        st.markdown("#### 3. 안내 정보")
         guidance_status = st.radio(
             "안내시설 상태",
             ["둘 다 있음", "점자 노선도만 있음", "점자 안내판만 있음", "둘다 없음"],
@@ -286,10 +310,10 @@ with form_col:
         braille_sign = guidance_status in ["둘 다 있음", "점자 안내판만 있음"]
         readability = st.selectbox("가독성", ["없음", "나쁨", "보통", "좋음"])
 
-        st.markdown("#### 3. 이동 편의 시설")
+        st.markdown("#### 4. 이동 편의 시설")
         audio_guidance = st.checkbox("음성 안내 장치 있음")
 
-        st.markdown("#### 4. 이용 가능성")
+        st.markdown("#### 5. 이용 가능성")
         user_rating = st.slider("전반적 평가", min_value=1, max_value=5, value=3, help="1점: 매우 불편, 5점: 매우 편리")
         hazards = st.text_input("위험 요소 (쉼표로 구분)", placeholder="예: 공사중, 장애물, 단절구간")
         comment = st.text_area("추가 의견", placeholder="현장 상황을 상세히 설명해주세요", height=110)
@@ -301,6 +325,7 @@ with form_col:
         report_data = {
             "station_id": selected_station["id"],
             "station_name": selected_station["name"],
+            "mobility_access": mobility_access,
             "braille_block_installed": braille_block_installed,
             "braille_block_connected": braille_block_connected,
             "braille_block_damaged": braille_block_damaged,
@@ -332,8 +357,9 @@ with form_col:
             f"""
             <div class="report-summary">
               새 접근성 점수: <strong>{score["total"]}점 ({score["grade"]}등급)</strong><br>
-              점자블럭 {score["braille_block"]}점 · 안내 정보 {score["guidance"]}점 ·
-              이동 편의 {score["facilities"]}점 · 이용 가능성 {score["usability"]}점
+              이동접근성 {score["mobility_access_score"]}점 · 점자블럭 {score["braille_block"]}점 ·
+              안내 정보 {score["guidance"]}점 · 음성 안내 {score["facilities"]}점 ·
+              이용 가능성 {score["usability"]}점
             </div>
             """,
             unsafe_allow_html=True,
