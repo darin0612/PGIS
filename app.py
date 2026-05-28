@@ -414,15 +414,13 @@ with form_col:
         audio_guidance = st.checkbox("음성 안내 장치 있음")
 
         st.markdown("#### 5. 이용 가능성")
-        star_rating_options = ["★☆☆☆☆", "★★☆☆☆", "★★★☆☆", "★★★★☆", "★★★★★"]
-        star_rating = st.radio(
-            "전반적 평가",
-            star_rating_options,
-            index=2,
-            horizontal=True,
-            help="1점: 매우 불편, 5점: 매우 편리",
-        )
-        user_rating = star_rating_options.index(star_rating) + 1
+        st.markdown("전반적 평가")
+        selected_rating = st.feedback("stars", key="user_rating_feedback")
+        user_rating = selected_rating + 1 if selected_rating is not None else None
+        if user_rating is None:
+            st.caption("별을 눌러 1점부터 5점까지 평가해주세요.")
+        else:
+            st.caption(f"{user_rating}점")
         hazards = st.text_input("위험 요소 (쉼표로 구분)", placeholder="예: 공사중, 장애물, 단절구간")
         comment = st.text_area("추가 의견", placeholder="현장 상황을 상세히 설명해주세요", height=110)
         submitter_name = st.text_input("제보자 이름 (선택)", placeholder="익명으로 제보됩니다")
@@ -430,6 +428,10 @@ with form_col:
         submitted = st.form_submit_button("제보하기", type="primary", use_container_width=True)
 
     if submitted:
+        if user_rating is None:
+            st.warning("전반적 평가 별점을 선택해주세요.")
+            st.stop()
+
         report_data = {
             "station_id": selected_station["id"],
             "station_name": selected_station["name"],
