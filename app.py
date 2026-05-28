@@ -414,7 +414,15 @@ with form_col:
         audio_guidance = st.checkbox("음성 안내 장치 있음")
 
         st.markdown("#### 5. 이용 가능성")
-        user_rating = st.slider("전반적 평가", min_value=1, max_value=5, value=3, help="1점: 매우 불편, 5점: 매우 편리")
+        star_rating_options = ["★☆☆☆☆", "★★☆☆☆", "★★★☆☆", "★★★★☆", "★★★★★"]
+        star_rating = st.radio(
+            "전반적 평가",
+            star_rating_options,
+            index=2,
+            horizontal=True,
+            help="1점: 매우 불편, 5점: 매우 편리",
+        )
+        user_rating = star_rating_options.index(star_rating) + 1
         hazards = st.text_input("위험 요소 (쉼표로 구분)", placeholder="예: 공사중, 장애물, 단절구간")
         comment = st.text_area("추가 의견", placeholder="현장 상황을 상세히 설명해주세요", height=110)
         submitter_name = st.text_input("제보자 이름 (선택)", placeholder="익명으로 제보됩니다")
