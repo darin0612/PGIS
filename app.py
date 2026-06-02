@@ -144,7 +144,7 @@ def calculate_accessibility_score(data: dict) -> dict:
         guidance += 10
     if data["braille_sign"]:
         guidance += 10
-    guidance += {"좋음": 10, "보통": 5, "나쁨": 2, "없음": 0}[data["readability"]]
+    guidance += {"정확함": 10, "일부 수정 필요": 5}[data["readability"]]
 
     facilities = 10 if data["audio_guidance"] else 0
     hazards = [item.strip() for item in data["hazards"].split(",") if item.strip()]
@@ -299,6 +299,12 @@ st.markdown(
       .app-header h1 { font-size: 20px; font-weight: 700; margin: 0; }
       .app-subtitle { margin-left: auto; font-size: 14px; }
       .project-copy { color: #6b7280; font-size: 14px; line-height: 1.6; margin-bottom: 20px; }
+      .inline-help-link {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 22px; height: 22px; margin-left: 4px; border-radius: 4px;
+        color: #1e40af; text-decoration: none; vertical-align: middle;
+      }
+      .inline-help-link:hover { background: #dbeafe; text-decoration: none; }
       a[data-testid="stMarkdownHeaderLink"],
       .stMarkdown h1 a,
       .stMarkdown h2 a,
@@ -415,7 +421,21 @@ with form_col:
         )
         braille_map = guidance_status in ["둘 다 있음", "점자 노선도만 있음"]
         braille_sign = guidance_status in ["둘 다 있음", "점자 안내판만 있음"]
-        readability = st.selectbox("점자 정확성", ["없음", "나쁨", "보통", "좋음"])
+        st.markdown(
+            '점자 정확성 <a class="inline-help-link" href="https://jumjaro.org/" target="_blank" rel="noopener noreferrer" title="점자로 확인하기">🔗</a>',
+            unsafe_allow_html=True,
+        )
+        readability = st.radio(
+            "점자 정확성 평가",
+            ["정확함", "일부 수정 필요"],
+            horizontal=False,
+            label_visibility="collapsed",
+        )
+        braille_correction = st.text_area(
+            "수정사항",
+            placeholder="일부 수정이 필요한 내용을 직접 적어주세요",
+            height=80,
+        )
 
         st.markdown("#### 4. 이동 편의 시설")
         audio_guidance = st.checkbox("음성 안내 장치 있음")
@@ -450,6 +470,7 @@ with form_col:
             "braille_sign": braille_sign,
             "guidance_status": guidance_status,
             "readability": readability,
+            "braille_correction": braille_correction if readability == "일부 수정 필요" else "",
             "audio_guidance": audio_guidance,
             "user_rating": user_rating,
             "hazards": hazards,
