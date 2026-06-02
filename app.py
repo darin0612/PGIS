@@ -278,7 +278,7 @@ def station_card(station: dict) -> None:
     )
 
 
-def score_detail_panel(station: dict) -> None:
+def score_detail_drawer(station: dict) -> None:
     color = GRADE_COLORS.get(station["grade"], GRADE_COLORS["F"])
     detail_rows = []
 
@@ -299,7 +299,8 @@ def score_detail_panel(station: dict) -> None:
 
     st.markdown(
         f"""
-        <section class="score-detail-panel">
+        <a class="score-detail-backdrop" href="?score_details=0" target="_self" aria-label="상세 점수 닫기"></a>
+        <aside class="score-detail-drawer" role="dialog" aria-label="상세 점수">
           <div class="score-detail-header">
             <div>
               <h2>상세 점수</h2>
@@ -309,12 +310,12 @@ def score_detail_panel(station: dict) -> None:
               <strong>{station["accessibility_score"]}점</strong>
               <span>{station["grade"]}등급</span>
             </div>
-            <a class="score-detail-close" href="?score_details=0" target="_self" title="상세 점수 닫기">닫기</a>
+            <a class="score-detail-close" href="?score_details=0" target="_self" title="상세 점수 닫기" aria-label="상세 점수 닫기">×</a>
           </div>
           <div class="detail-score-grid">
             {''.join(detail_rows)}
           </div>
-        </section>
+        </aside>
         """,
         unsafe_allow_html=True,
     )
@@ -408,27 +409,38 @@ st.markdown(
         border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 14px;
         background: #f9fafb; margin-top: 10px; font-size: 14px;
       }
-      .score-detail-panel {
-        margin: 16px 0 18px; padding: 18px 20px; background: #ffffff;
-        border: 1px solid #dbeafe; border-radius: 8px;
-        box-shadow: 0 1px 3px rgba(15,23,42,.08);
+      .score-detail-backdrop {
+        position: fixed; inset: 0; z-index: 9998;
+        background: rgba(15,23,42,.22);
+      }
+      .score-detail-drawer {
+        position: fixed; top: 0; right: 0; z-index: 9999;
+        width: min(420px, calc(100vw - 28px)); height: 100vh;
+        padding: 24px 22px; background: #ffffff;
+        box-shadow: -8px 0 24px rgba(15,23,42,.18);
+        overflow-y: auto; animation: slideInRight .18s ease-out;
       }
       .score-detail-header {
-        display: flex; align-items: center; gap: 16px; margin-bottom: 16px;
+        display: grid; grid-template-columns: 1fr auto auto; align-items: start;
+        gap: 12px; margin-bottom: 18px;
       }
       .score-detail-header h2 { margin: 0; font-size: 20px; color: #111827; }
       .score-detail-header p { margin: 4px 0 0; font-size: 14px; color: #6b7280; }
       .score-detail-total {
-        margin-left: auto; min-width: 92px; padding: 8px 12px; border: 2px solid;
+        min-width: 92px; padding: 8px 12px; border: 2px solid;
         border-radius: 8px; text-align: center; color: #111827; background: #f9fafb;
       }
       .score-detail-total strong { display: block; font-size: 20px; line-height: 1.1; }
       .score-detail-total span { font-size: 12px; color: #6b7280; }
       .score-detail-close {
-        color: #1e40af; font-size: 14px; font-weight: 700; text-decoration: none;
+        width: 32px; height: 32px; border-radius: 6px; display: flex;
+        align-items: center; justify-content: center;
+        color: #374151; background: #f3f4f6; font-size: 24px;
+        line-height: 1; font-weight: 700; text-decoration: none;
       }
+      .score-detail-close:hover { background: #e5e7eb; color: #111827; text-decoration: none; }
       .detail-score-grid {
-        display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)); gap: 12px;
+        display: grid; grid-template-columns: 1fr; gap: 12px;
       }
       .detail-score-row {
         border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; background: #f9fafb;
@@ -437,15 +449,18 @@ st.markdown(
       .detail-score-value { font-size: 18px; font-weight: 700; color: #111827; margin-bottom: 10px; }
       .detail-score-track { height: 8px; border-radius: 999px; background: #e5e7eb; overflow: hidden; }
       .detail-score-fill { height: 100%; border-radius: 999px; }
+      @keyframes slideInRight {
+        from { transform: translateX(100%); }
+        to { transform: translateX(0); }
+      }
       div[data-testid="stSidebarContent"] { background: #f9fafb; }
       .stButton > button[kind="primary"] { background: #1e40af; border-color: #1e40af; }
       iframe { border: 0; }
       @media (max-width: 900px) {
         .app-subtitle { display: none; }
         .app-header h1 { font-size: 18px; }
-        .detail-score-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
-        .score-detail-header { align-items: flex-start; flex-wrap: wrap; }
-        .score-detail-total { margin-left: 0; }
+        .score-detail-header { grid-template-columns: 1fr auto; }
+        .score-detail-total { grid-column: 1 / -1; justify-self: start; }
       }
     </style>
     <div class="app-header">
@@ -479,7 +494,7 @@ with st.sidebar:
 
 
 if st.query_params.get("score_details") == "1":
-    score_detail_panel(selected_station)
+    score_detail_drawer(selected_station)
 
 
 map_col, form_col = st.columns([1.9, 1], gap="large")
