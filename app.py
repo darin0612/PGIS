@@ -15,11 +15,19 @@ st.set_page_config(
 
 
 GRADE_COLORS = {
-    "A": "#10b981",
-    "B": "#3b82f6",
-    "C": "#f59e0b",
-    "D": "#ef4444",
-    "F": "#6b7280",
+    "A": "#5B7E3C",
+    "B": "#A2CB8B",
+    "C": "#E8F5BD",
+    "D": "#C44545",
+    "F": "#6FA4AF",
+}
+
+GRADE_TEXT_COLORS = {
+    "A": "#ffffff",
+    "B": "#26351f",
+    "C": "#384126",
+    "D": "#ffffff",
+    "F": "#ffffff",
 }
 
 MOBILITY_ACCESS_OPTIONS = [
@@ -165,11 +173,12 @@ def calculate_accessibility_score(data: dict) -> dict:
 
 def marker_html(grade: str) -> str:
     color = GRADE_COLORS.get(grade, GRADE_COLORS["F"])
+    text_color = GRADE_TEXT_COLORS.get(grade, "#ffffff")
     return f"""
     <div style="
       width:36px;height:36px;background:{color};border:3px solid white;
       border-radius:50%;display:flex;align-items:center;justify-content:center;
-      color:white;font-weight:700;font-size:14px;
+      color:{text_color};font-weight:700;font-size:14px;
       box-shadow:0 2px 4px rgba(0,0,0,.3);">{html.escape(grade)}</div>
     """
 
@@ -233,13 +242,14 @@ def build_map(stations: list[dict], selected_id: str | None) -> folium.Map:
 
 def station_card(station: dict) -> None:
     color = GRADE_COLORS.get(station["grade"], GRADE_COLORS["F"])
+    text_color = GRADE_TEXT_COLORS.get(station["grade"], "#ffffff")
     st.markdown(
         f"""
         <section class="station-card">
           <h3>{html.escape(station["name"])}</h3>
           <span class="line-badge">{html.escape(station["line"])}</span>
           <div class="score-row">
-            <div class="grade-box" style="background:{color}">{station["grade"]}</div>
+            <div class="grade-box" style="background:{color};color:{text_color}">{station["grade"]}</div>
             <div>
               <div class="score-number">{station["accessibility_score"]}점</div>
               <div class="muted">접근성 점수</div>
@@ -290,21 +300,22 @@ st.markdown(
     """
     <style>
       * { box-sizing: border-box; }
+      .stApp { background: #F4E9D7; }
       .block-container { padding: 3.5rem 1.25rem 1.25rem; max-width: 100%; }
       .app-header {
         height: 60px; margin: 0 -1.25rem 0; padding: 0 20px;
-        background: #1e40af; color: white; display: flex; align-items: center;
+        background: #D97D55; color: white; display: flex; align-items: center;
         box-shadow: 0 2px 4px rgba(0,0,0,.1); gap: 16px;
       }
       .app-header h1 { font-size: 20px; font-weight: 700; margin: 0; }
       .app-subtitle { margin-left: auto; font-size: 14px; }
-      .project-copy { color: #6b7280; font-size: 14px; line-height: 1.6; margin-bottom: 20px; }
+      .project-copy { color: #4f675f; font-size: 14px; line-height: 1.6; margin-bottom: 20px; }
       .inline-help-link {
         display: inline-flex; align-items: center; justify-content: center;
         width: 22px; height: 22px; margin-left: 4px; border-radius: 4px;
-        color: #1e40af; text-decoration: none; vertical-align: middle;
+        color: #6FA4AF; text-decoration: none; vertical-align: middle;
       }
-      .inline-help-link:hover { background: #dbeafe; text-decoration: none; }
+      .inline-help-link:hover { background: #B8C4A9; text-decoration: none; }
       a[data-testid="stMarkdownHeaderLink"],
       .stMarkdown h1 a,
       .stMarkdown h2 a,
@@ -316,33 +327,34 @@ st.markdown(
         display: none !important;
       }
       .station-card {
-        background: white; border-radius: 8px; padding: 16px;
-        box-shadow: 0 1px 3px rgba(0,0,0,.1); border: 1px solid #eef2f7;
+        background: #fffaf1; border-radius: 8px; padding: 16px;
+        box-shadow: 0 1px 3px rgba(111,164,175,.2); border: 1px solid #B8C4A9;
       }
-      .station-card h3 { font-size: 20px; font-weight: 700; margin: 0 0 12px; color: #111827; }
+      .station-card h3 { font-size: 20px; font-weight: 700; margin: 0 0 12px; color: #3f4a35; }
       .line-badge {
-        display: inline-block; padding: 4px 12px; background: #dbeafe; color: #1e40af;
+        display: inline-block; padding: 4px 12px; background: #B8C4A9; color: #3f4a35;
         border-radius: 4px; font-size: 14px; margin-bottom: 12px;
       }
       .score-row { display: flex; align-items: center; gap: 16px; margin: 4px 0 16px; }
       .grade-box {
         width: 60px; height: 60px; border-radius: 8px; display: flex;
-        align-items: center; justify-content: center; color: white;
+        align-items: center; justify-content: center;
         font-size: 28px; font-weight: 700;
       }
-      .score-number { font-size: 32px; font-weight: 700; color: #111827; line-height: 1.1; }
-      .muted { font-size: 12px; color: #6b7280; }
+      .score-number { font-size: 32px; font-weight: 700; color: #3f4a35; line-height: 1.1; }
+      .muted { font-size: 12px; color: #6FA4AF; }
       .meta-row { font-size: 14px; margin: 8px 0; display: flex; gap: 6px; }
-      .meta-row span { color: #6b7280; }
-      .meta-row strong { color: #111827; }
-      .legend-row { display: flex; align-items: center; gap: 8px; color: #6b7280; font-size: 14px; margin: 6px 0; }
+      .meta-row span { color: #6FA4AF; }
+      .meta-row strong { color: #3f4a35; }
+      .legend-row { display: flex; align-items: center; gap: 8px; color: #4f675f; font-size: 14px; margin: 6px 0; }
       .legend-row span { width: 24px; height: 16px; border-radius: 2px; display: inline-block; }
       .report-summary {
-        border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 14px;
-        background: #f9fafb; margin-top: 10px; font-size: 14px;
+        border: 1px solid #B8C4A9; border-radius: 8px; padding: 12px 14px;
+        background: #fffaf1; margin-top: 10px; font-size: 14px;
       }
-      div[data-testid="stSidebarContent"] { background: #f9fafb; }
-      .stButton > button[kind="primary"] { background: #1e40af; border-color: #1e40af; }
+      div[data-testid="stSidebarContent"] { background: #F4E9D7; }
+      .stButton > button[kind="primary"] { background: #D97D55; border-color: #D97D55; }
+      .stButton > button[kind="primary"]:hover { background: #c96f4c; border-color: #c96f4c; }
       iframe { border: 0; }
       @media (max-width: 900px) {
         .app-subtitle { display: none; }
