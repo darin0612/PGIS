@@ -400,15 +400,15 @@ with form_col:
         braille_block_connected = st.checkbox("점자블럭이 끊김없이 연결되어 있음")
         braille_block_damaged = st.checkbox("점자블럭이 훼손되어 있음")
 
-        st.markdown("#### 3. 안내 정보")
+        st.markdown("#### 3. 점자 안내 정보")
         guidance_status = st.radio(
-            "안내시설 상태",
+            "점자안내시설 상태",
             ["둘 다 있음", "점자 노선도만 있음", "점자 안내판만 있음", "둘다 없음"],
             horizontal=False,
         )
         braille_map = guidance_status in ["둘 다 있음", "점자 노선도만 있음"]
         braille_sign = guidance_status in ["둘 다 있음", "점자 안내판만 있음"]
-        readability = st.selectbox("가독성", ["없음", "나쁨", "보통", "좋음"])
+        readability = st.selectbox("점자 정확성", ["없음", "나쁨", "보통", "좋음"])
 
         st.markdown("#### 4. 이동 편의 시설")
         audio_guidance = st.checkbox("음성 안내 장치 있음")
@@ -468,7 +468,7 @@ with form_col:
             <div class="report-summary">
               새 접근성 점수: <strong>{score["total"]}점 ({score["grade"]}등급)</strong><br>
               이동접근성 {score["mobility_access_score"]}점 · 점자블럭 {score["braille_block"]}점 ·
-              안내 정보 {score["guidance"]}점 · 음성 안내 {score["facilities"]}점 ·
+              점자 안내 정보 {score["guidance"]}점 · 음성 안내 {score["facilities"]}점 ·
               이용 가능성 {score["usability"]}점
             </div>
             """,
