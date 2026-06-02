@@ -301,6 +301,16 @@ st.markdown(
       .app-header h1 { font-size: 20px; font-weight: 700; margin: 0; }
       .app-subtitle { margin-left: auto; font-size: 14px; }
       .project-copy { color: #6b7280; font-size: 14px; line-height: 1.6; margin-bottom: 20px; }
+      a[data-testid="stMarkdownHeaderLink"],
+      .stMarkdown h1 a,
+      .stMarkdown h2 a,
+      .stMarkdown h3 a,
+      .stMarkdown h4 a,
+      .stMarkdown h5 a,
+      .stMarkdown h6 a,
+      .headerlink {
+        display: none !important;
+      }
       .station-card {
         background: white; border-radius: 8px; padding: 16px;
         box-shadow: 0 1px 3px rgba(0,0,0,.1); border: 1px solid #eef2f7;
