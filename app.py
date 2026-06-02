@@ -36,6 +36,14 @@ MOBILITY_ACCESS_SCORES = {
     "계단을 필수로 거쳐야 함": 0,
 }
 
+SCORE_DETAIL_ITEMS = [
+    ("mobility_access_score", "이동접근성", 10),
+    ("braille_block", "점자블럭", 40),
+    ("guidance", "점자 안내 정보", 30),
+    ("facilities", "음성 안내", 10),
+    ("usability", "이용 가능성", 10),
+]
+
 SUBWAY_LINES = {
     "1호선": {
         "color": "#0052A4",
@@ -114,6 +122,22 @@ SAMPLE_STATIONS = [
     {"id": "9", "name": "홍대입구역", "line": "2호선", "latitude": 37.5579, "longitude": 126.9238, "accessibility_score": 82, "grade": "B", "last_updated": "2024-01-16", "report_count": 18, "reliability": 88},
     {"id": "10", "name": "신촌역", "line": "2호선", "latitude": 37.5559, "longitude": 126.9364, "accessibility_score": 70, "grade": "C", "last_updated": "2024-01-08", "report_count": 9, "reliability": 72},
 ]
+
+SAMPLE_SCORE_DETAILS = {
+    "1": {"mobility_access_score": 10, "braille_block": 35, "guidance": 25, "facilities": 10, "usability": 5},
+    "2": {"mobility_access_score": 7, "braille_block": 30, "guidance": 20, "facilities": 5, "usability": 10},
+    "3": {"mobility_access_score": 10, "braille_block": 40, "guidance": 25, "facilities": 10, "usability": 7},
+    "4": {"mobility_access_score": 7, "braille_block": 25, "guidance": 20, "facilities": 10, "usability": 6},
+    "5": {"mobility_access_score": 5, "braille_block": 20, "guidance": 15, "facilities": 5, "usability": 10},
+    "6": {"mobility_access_score": 10, "braille_block": 35, "guidance": 25, "facilities": 10, "usability": 8},
+    "7": {"mobility_access_score": 7, "braille_block": 30, "guidance": 25, "facilities": 10, "usability": 6},
+    "8": {"mobility_access_score": 5, "braille_block": 25, "guidance": 20, "facilities": 5, "usability": 10},
+    "9": {"mobility_access_score": 10, "braille_block": 35, "guidance": 22, "facilities": 5, "usability": 10},
+    "10": {"mobility_access_score": 7, "braille_block": 25, "guidance": 20, "facilities": 10, "usability": 8},
+}
+
+for station in SAMPLE_STATIONS:
+    station.update(SAMPLE_SCORE_DETAILS[station["id"]])
 
 
 def get_grade(score: int) -> str:
@@ -254,6 +278,48 @@ def station_card(station: dict) -> None:
     )
 
 
+def score_detail_panel(station: dict) -> None:
+    color = GRADE_COLORS.get(station["grade"], GRADE_COLORS["F"])
+    detail_rows = []
+
+    for key, label, max_score in SCORE_DETAIL_ITEMS:
+        score = int(station.get(key, 0))
+        bar_width = max(0, min(100, score / max_score * 100))
+        detail_rows.append(
+            f"""
+            <div class="detail-score-row">
+              <div class="detail-score-label">{html.escape(label)}</div>
+              <div class="detail-score-value">{score} / {max_score}점</div>
+              <div class="detail-score-track">
+                <div class="detail-score-fill" style="width:{bar_width}%;background:{color};"></div>
+              </div>
+            </div>
+            """
+        )
+
+    st.markdown(
+        f"""
+        <section class="score-detail-panel">
+          <div class="score-detail-header">
+            <div>
+              <h2>상세 점수</h2>
+              <p>{html.escape(station["name"])} · {html.escape(station["line"])}</p>
+            </div>
+            <div class="score-detail-total" style="border-color:{color};">
+              <strong>{station["accessibility_score"]}점</strong>
+              <span>{station["grade"]}등급</span>
+            </div>
+            <a class="score-detail-close" href="?score_details=0" target="_self" title="상세 점수 닫기">닫기</a>
+          </div>
+          <div class="detail-score-grid">
+            {''.join(detail_rows)}
+          </div>
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def grade_legend() -> None:
     st.markdown("#### 등급 기준")
     for grade, label in [
@@ -297,7 +363,12 @@ st.markdown(
         background: #1e40af; color: white; display: flex; align-items: center;
         box-shadow: 0 2px 4px rgba(0,0,0,.1); gap: 16px;
       }
-      .menu-icon { font-size: 24px; line-height: 1; }
+      .menu-icon {
+        width: 36px; height: 36px; border-radius: 6px; display: flex;
+        align-items: center; justify-content: center; color: white;
+        font-size: 24px; line-height: 1; text-decoration: none;
+      }
+      .menu-icon:hover { background: rgba(255,255,255,.15); color: white; text-decoration: none; }
       .app-header h1 { font-size: 20px; font-weight: 700; margin: 0; }
       .app-subtitle { margin-left: auto; font-size: 14px; }
       .project-copy { color: #6b7280; font-size: 14px; line-height: 1.6; margin-bottom: 20px; }
@@ -337,16 +408,48 @@ st.markdown(
         border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 14px;
         background: #f9fafb; margin-top: 10px; font-size: 14px;
       }
+      .score-detail-panel {
+        margin: 16px 0 18px; padding: 18px 20px; background: #ffffff;
+        border: 1px solid #dbeafe; border-radius: 8px;
+        box-shadow: 0 1px 3px rgba(15,23,42,.08);
+      }
+      .score-detail-header {
+        display: flex; align-items: center; gap: 16px; margin-bottom: 16px;
+      }
+      .score-detail-header h2 { margin: 0; font-size: 20px; color: #111827; }
+      .score-detail-header p { margin: 4px 0 0; font-size: 14px; color: #6b7280; }
+      .score-detail-total {
+        margin-left: auto; min-width: 92px; padding: 8px 12px; border: 2px solid;
+        border-radius: 8px; text-align: center; color: #111827; background: #f9fafb;
+      }
+      .score-detail-total strong { display: block; font-size: 20px; line-height: 1.1; }
+      .score-detail-total span { font-size: 12px; color: #6b7280; }
+      .score-detail-close {
+        color: #1e40af; font-size: 14px; font-weight: 700; text-decoration: none;
+      }
+      .detail-score-grid {
+        display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)); gap: 12px;
+      }
+      .detail-score-row {
+        border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; background: #f9fafb;
+      }
+      .detail-score-label { font-size: 13px; color: #6b7280; margin-bottom: 6px; }
+      .detail-score-value { font-size: 18px; font-weight: 700; color: #111827; margin-bottom: 10px; }
+      .detail-score-track { height: 8px; border-radius: 999px; background: #e5e7eb; overflow: hidden; }
+      .detail-score-fill { height: 100%; border-radius: 999px; }
       div[data-testid="stSidebarContent"] { background: #f9fafb; }
       .stButton > button[kind="primary"] { background: #1e40af; border-color: #1e40af; }
       iframe { border: 0; }
       @media (max-width: 900px) {
         .app-subtitle { display: none; }
         .app-header h1 { font-size: 18px; }
+        .detail-score-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+        .score-detail-header { align-items: flex-start; flex-wrap: wrap; }
+        .score-detail-total { margin-left: 0; }
       }
     </style>
     <div class="app-header">
-      <div class="menu-icon">☰</div>
+      <a class="menu-icon" href="?score_details=1" target="_self" title="상세 점수 보기" aria-label="상세 점수 보기">☰</a>
       <h1>서울 지하철 접근성 지도</h1>
       <div class="app-subtitle">시각장애인 이동 편의 개선 PGIS</div>
     </div>
@@ -373,6 +476,10 @@ with st.sidebar:
     station_card(selected_station)
     grade_legend()
     subway_line_legend()
+
+
+if st.query_params.get("score_details") == "1":
+    score_detail_panel(selected_station)
 
 
 map_col, form_col = st.columns([1.9, 1], gap="large")
@@ -467,6 +574,8 @@ with form_col:
             if station["id"] == selected_station["id"]:
                 station["accessibility_score"] = score["total"]
                 station["grade"] = score["grade"]
+                for key, _, _ in SCORE_DETAIL_ITEMS:
+                    station[key] = score[key]
                 station["report_count"] += 1
                 station["reliability"] = min(100, station["reliability"] + 2)
                 station["last_updated"] = date.today().isoformat()
