@@ -302,6 +302,27 @@ st.markdown(
       * { box-sizing: border-box; }
       .stApp { background: #F4E9D7; }
       .block-container { padding: 3.5rem 1.25rem 1.25rem; max-width: 100%; }
+      section[data-testid="stSidebar"] {
+        transform: none !important;
+        visibility: visible !important;
+      }
+      section[data-testid="stSidebar"] > div:first-child {
+        width: 21rem !important;
+        min-width: 21rem !important;
+      }
+      [data-testid="collapsedControl"],
+      [data-testid="stSidebarCollapsedControl"],
+      [data-testid="stSidebarCollapseButton"],
+      button[title="Open sidebar"],
+      button[title="Close sidebar"],
+      button[title="사이드바 열기"],
+      button[title="사이드바 닫기"],
+      button[aria-label="Open sidebar"],
+      button[aria-label="Close sidebar"],
+      button[aria-label="사이드바 열기"],
+      button[aria-label="사이드바 닫기"] {
+        display: none !important;
+      }
       .app-header {
         height: 60px; margin: 0 -1.25rem 0; padding: 0 20px;
         background: #D97D55; color: white; display: flex; align-items: center;
@@ -335,6 +356,12 @@ st.markdown(
         display: inline-block; padding: 4px 12px; background: #B8C4A9; color: #3f4a35;
         border-radius: 4px; font-size: 14px; margin-bottom: 12px;
       }
+      .selected-station-banner {
+        border-radius: 8px; color: white; padding: 12px 14px; margin-bottom: 14px;
+        box-shadow: 0 1px 3px rgba(15,23,42,.16);
+      }
+      .selected-station-banner strong { display: block; font-size: 18px; line-height: 1.2; }
+      .selected-station-banner span { display: block; font-size: 13px; margin-top: 4px; opacity: .92; }
       .score-row { display: flex; align-items: center; gap: 16px; margin: 4px 0 16px; }
       .grade-box {
         width: 60px; height: 60px; border-radius: 8px; display: flex;
@@ -355,6 +382,17 @@ st.markdown(
       div[data-testid="stSidebarContent"] { background: #F4E9D7; }
       .stButton > button[kind="primary"] { background: #D97D55; border-color: #D97D55; }
       .stButton > button[kind="primary"]:hover { background: #c96f4c; border-color: #c96f4c; }
+      input[type="radio"],
+      input[type="checkbox"] {
+        accent-color: #C44545;
+      }
+      div[data-testid="stRadio"] label[data-baseweb="radio"] input:checked + div,
+      div[data-testid="stRadio"] label[data-baseweb="radio"] input:checked ~ div,
+      div[data-testid="stCheckbox"] label[data-baseweb="checkbox"] input:checked + div,
+      div[data-testid="stCheckbox"] label[data-baseweb="checkbox"] input:checked ~ div {
+        background-color: #C44545 !important;
+        border-color: #C44545 !important;
+      }
       iframe { border: 0; }
       @media (max-width: 900px) {
         .app-subtitle { display: none; }
@@ -410,7 +448,16 @@ with map_col:
 
 with form_col:
     st.markdown("### 접근성 정보 제보")
-    st.info(f'{selected_station["name"]} ({selected_station["line"]})')
+    selected_line_color = SUBWAY_LINES.get(selected_station["line"], {}).get("color", "#6FA4AF")
+    st.markdown(
+        f"""
+        <div class="selected-station-banner" style="background:{selected_line_color};">
+          <strong>{html.escape(selected_station["name"])}</strong>
+          <span>{html.escape(selected_station["line"])}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     with st.form("accessibility_report", clear_on_submit=True):
         st.markdown("#### 1. 이동접근성 정보")
