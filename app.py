@@ -146,7 +146,7 @@ def calculate_accessibility_score(data: dict) -> dict:
         guidance += 10
     guidance += {"정확함": 10, "일부 수정 필요": 5}[data["readability"]]
 
-    facilities = 10 if data["audio_guidance"] else 0
+    facilities = 10 if data["audio_guidance"] or data["wheelchair_lift"] else 0
     hazards = [item.strip() for item in data["hazards"].split(",") if item.strip()]
     usability = max(0, data["user_rating"] * 2 - len(hazards) * 2)
     total = max(0, min(100, mobility_access + braille_block + guidance + facilities + usability))
@@ -439,6 +439,7 @@ with form_col:
 
         st.markdown("#### 4. 이동 편의 시설")
         audio_guidance = st.checkbox("음성 안내 장치 있음")
+        wheelchair_lift = st.checkbox("계단에 휠체어 리프트 있음")
 
         st.markdown("#### 5. 이용 가능성")
         st.markdown("전반적 평가")
@@ -472,6 +473,7 @@ with form_col:
             "readability": readability,
             "braille_correction": braille_correction if readability == "일부 수정 필요" else "",
             "audio_guidance": audio_guidance,
+            "wheelchair_lift": wheelchair_lift,
             "user_rating": user_rating,
             "hazards": hazards,
             "comment": comment,
@@ -496,7 +498,7 @@ with form_col:
             <div class="report-summary">
               새 접근성 점수: <strong>{score["total"]}점 ({score["grade"]}등급)</strong><br>
               이동접근성 {score["mobility_access_score"]}점 · 점자블럭 {score["braille_block"]}점 ·
-              점자 안내 정보 {score["guidance"]}점 · 음성 안내 {score["facilities"]}점 ·
+              점자 안내 정보 {score["guidance"]}점 · 이동 편의 시설 {score["facilities"]}점 ·
               이용 가능성 {score["usability"]}점
             </div>
             """,
