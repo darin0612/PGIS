@@ -348,7 +348,7 @@ st.markdown(
 with st.sidebar:
     st.markdown("### 프로젝트 정보")
     st.markdown(
-        '<p class="project-copy">시민 참여 기반으로 지하철역의 점자블럭, 안내시설 등 접근성 정보를 수집하고 공유합니다.</p>',
+        '<p class="project-copy">시민 참여 기반으로 지하철역의 점자블럭, 점자 안내시설 등 접근성 정보를 수집하고 공유합니다.</p>',
         unsafe_allow_html=True,
     )
 
