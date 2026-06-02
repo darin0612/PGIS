@@ -386,10 +386,12 @@ st.markdown(
       input[type="checkbox"] {
         accent-color: #C44545;
       }
-      div[data-testid="stRadio"] label[data-baseweb="radio"] input:checked + div,
-      div[data-testid="stRadio"] label[data-baseweb="radio"] input:checked ~ div,
-      div[data-testid="stCheckbox"] label[data-baseweb="checkbox"] input:checked + div,
-      div[data-testid="stCheckbox"] label[data-baseweb="checkbox"] input:checked ~ div {
+      div[data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) > div:first-child,
+      div[data-testid="stCheckbox"] label[data-baseweb="checkbox"]:has(input:checked) > div:first-child {
+        border-color: #C44545 !important;
+      }
+      div[data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) > div:first-child > div,
+      div[data-testid="stCheckbox"] label[data-baseweb="checkbox"]:has(input:checked) > div:first-child > div {
         background-color: #C44545 !important;
         border-color: #C44545 !important;
       }
