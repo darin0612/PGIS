@@ -1,4 +1,6 @@
 import html
+import json
+import os
 from datetime import date
 
 import folium
@@ -194,6 +196,160 @@ def popup_html(station: dict) -> str:
     """
 
 
+def get_secret_config() -> dict:
+    try:
+        return dict(st.secrets.get("postgres", {}))
+    except Exception:
+        return {}
+
+
+def get_postgres_config() -> dict:
+    secrets = get_secret_config()
+    return {
+        "host": os.getenv("PGHOST") or secrets.get("host") or "localhost",
+        "port": int(os.getenv("PGPORT") or secrets.get("port") or 5432),
+        "dbname": os.getenv("PGDATABASE") or secrets.get("database") or secrets.get("dbname") or "postgres",
+        "user": os.getenv("PGUSER") or secrets.get("user") or "postgres",
+        "password": os.getenv("PGPASSWORD") or secrets.get("password") or "",
+        "schema": os.getenv("PGSCHEMA") or secrets.get("schema") or "public",
+        "table": os.getenv("PGTABLE") or secrets.get("table") or "subwayline3",
+    }
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def load_postgis_geojson(host: str, port: int, dbname: str, user: str, _password: str, schema: str, table: str) -> tuple[dict | None, str | None]:
+    try:
+        import psycopg2
+        from psycopg2 import sql
+    except ModuleNotFoundError:
+        return None, "psycopg2-binary 패키지가 설치되어 있지 않습니다."
+
+    query = sql.SQL(
+        """
+        SELECT
+            id::text AS id,
+            COALESCE("역"::text, '') AS station_name,
+            COALESCE("호선"::text, '') AS line_name,
+            ST_AsGeoJSON(
+                CASE
+                    WHEN ST_SRID(geom) = 0 THEN ST_SetSRID(geom, 4326)
+                    WHEN ST_SRID(geom) = 4326 THEN geom
+                    ELSE ST_Transform(geom, 4326)
+                END
+            ) AS geometry_json
+        FROM {table_name}
+        WHERE geom IS NOT NULL
+        """
+    ).format(table_name=sql.Identifier(schema, table))
+
+    try:
+        with psycopg2.connect(
+            host=host,
+            port=port,
+            dbname=dbname,
+            user=user,
+            password=_password,
+            connect_timeout=3,
+        ) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(query)
+                rows = cursor.fetchall()
+    except Exception as error:
+        return None, f"PostGIS geometry를 불러오지 못했습니다: {error}"
+
+    features = []
+    for row_id, station_name, line_name, geometry_json in rows:
+        if not geometry_json:
+            continue
+        features.append(
+            {
+                "type": "Feature",
+                "geometry": json.loads(geometry_json),
+                "properties": {
+                    "id": row_id,
+                    "station_name": station_name,
+                    "line_name": line_name,
+                },
+            }
+        )
+
+    return {"type": "FeatureCollection", "features": features}, None
+
+
+def line_color(line_name: str) -> str:
+    return SUBWAY_LINES.get(line_name, {}).get("color", "#6FA4AF")
+
+
+def to_lat_lng(coordinate: list[float]) -> list[float]:
+    return [coordinate[1], coordinate[0]]
+
+
+def feature_tooltip(properties: dict) -> str:
+    station_name = properties.get("station_name") or "이름 없음"
+    line_name = properties.get("line_name") or "호선 없음"
+    return f"{station_name} · {line_name}"
+
+
+def add_line_geometry(layer: folium.FeatureGroup, coordinates: list, color: str, tooltip: str) -> None:
+    locations = [to_lat_lng(coordinate) for coordinate in coordinates]
+    folium.PolyLine(locations=locations, color="white", weight=9, opacity=0.8, tooltip=tooltip).add_to(layer)
+    folium.PolyLine(locations=locations, color=color, weight=5, opacity=0.95, tooltip=tooltip).add_to(layer)
+
+
+def add_point_geometry(layer: folium.FeatureGroup, coordinate: list, color: str, tooltip: str) -> None:
+    folium.CircleMarker(
+        location=to_lat_lng(coordinate),
+        radius=5,
+        color="white",
+        weight=2,
+        fill=True,
+        fill_color=color,
+        fill_opacity=0.95,
+        tooltip=tooltip,
+    ).add_to(layer)
+
+
+def add_postgis_feature(layer: folium.FeatureGroup, feature: dict) -> None:
+    geometry = feature.get("geometry") or {}
+    properties = feature.get("properties") or {}
+    geometry_type = geometry.get("type")
+    coordinates = geometry.get("coordinates")
+    color = line_color(properties.get("line_name", ""))
+    tooltip = feature_tooltip(properties)
+
+    if not coordinates:
+        return
+    if geometry_type == "Point":
+        add_point_geometry(layer, coordinates, color, tooltip)
+    elif geometry_type == "MultiPoint":
+        for point in coordinates:
+            add_point_geometry(layer, point, color, tooltip)
+    elif geometry_type == "LineString":
+        add_line_geometry(layer, coordinates, color, tooltip)
+    elif geometry_type == "MultiLineString":
+        for line in coordinates:
+            add_line_geometry(layer, line, color, tooltip)
+    elif geometry_type in {"Polygon", "MultiPolygon", "GeometryCollection"}:
+        folium.GeoJson(
+            feature,
+            tooltip=tooltip,
+            style_function=lambda item: {
+                "color": line_color((item.get("properties") or {}).get("line_name", "")),
+                "weight": 4,
+                "opacity": 0.9,
+                "fillColor": line_color((item.get("properties") or {}).get("line_name", "")),
+                "fillOpacity": 0.2,
+            },
+        ).add_to(layer)
+
+
+def add_postgis_geometry_layer(subway_map: folium.Map, geojson: dict) -> None:
+    layer = folium.FeatureGroup(name="subwayline3 geom", show=True)
+    for feature in geojson.get("features", []):
+        add_postgis_feature(layer, feature)
+    layer.add_to(subway_map)
+
+
 def add_subway_line_layers(subway_map: folium.Map) -> None:
     for line_name, line_info in SUBWAY_LINES.items():
         layer = folium.FeatureGroup(name=f"{line_name} 노선", show=True)
@@ -216,12 +372,15 @@ def add_subway_line_layers(subway_map: folium.Map) -> None:
         layer.add_to(subway_map)
 
 
-def build_map(stations: list[dict], selected_id: str | None) -> folium.Map:
+def build_map(stations: list[dict], selected_id: str | None, postgis_geojson: dict | None = None) -> folium.Map:
     selected = next((station for station in stations if station["id"] == selected_id), None)
     center = [selected["latitude"], selected["longitude"]] if selected else [37.5665, 126.9780]
     zoom = 15 if selected else 13
     subway_map = folium.Map(location=center, zoom_start=zoom, tiles="CartoDB positron", control_scale=True)
-    add_subway_line_layers(subway_map)
+    if postgis_geojson and postgis_geojson.get("features"):
+        add_postgis_geometry_layer(subway_map, postgis_geojson)
+    else:
+        add_subway_line_layers(subway_map)
 
     for station in stations:
         folium.Marker(
@@ -294,6 +453,17 @@ if "selected_station_id" not in st.session_state:
     st.session_state.selected_station_id = st.session_state.stations[0]["id"]
 if "reports" not in st.session_state:
     st.session_state.reports = []
+
+postgres_config = get_postgres_config()
+postgis_geojson, postgis_error = load_postgis_geojson(
+    postgres_config["host"],
+    postgres_config["port"],
+    postgres_config["dbname"],
+    postgres_config["user"],
+    postgres_config["password"],
+    postgres_config["schema"],
+    postgres_config["table"],
+)
 
 
 st.markdown(
@@ -411,7 +581,9 @@ with left_col:
 
 
 with map_col:
-    subway_map = build_map(st.session_state.stations, st.session_state.selected_station_id)
+    if postgis_error:
+        st.caption(postgis_error)
+    subway_map = build_map(st.session_state.stations, st.session_state.selected_station_id, postgis_geojson)
     map_state = st_folium(
         subway_map,
         height=720,

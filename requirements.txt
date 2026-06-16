@@ -1,3 +1,4 @@
 streamlit>=1.40
 streamlit-folium>=0.20
 folium>=0.16
+psycopg2-binary>=2.9
