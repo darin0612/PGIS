@@ -205,7 +205,14 @@ def get_secret_config() -> dict:
 
 def get_postgres_config() -> dict:
     secrets = get_secret_config()
+    has_env_config = any(
+        os.getenv(key)
+        for key in ["PGHOST", "PGPORT", "PGDATABASE", "PGUSER", "PGPASSWORD", "PGSCHEMA", "PGTABLE"]
+    )
+    has_secret_config = bool(secrets)
+
     return {
+        "enabled": has_env_config or has_secret_config,
         "host": os.getenv("PGHOST") or secrets.get("host") or "localhost",
         "port": int(os.getenv("PGPORT") or secrets.get("port") or 5432),
         "dbname": os.getenv("PGDATABASE") or secrets.get("database") or secrets.get("dbname") or "postgres",
@@ -255,7 +262,7 @@ def load_postgis_geojson(host: str, port: int, dbname: str, user: str, _password
                 cursor.execute(query)
                 rows = cursor.fetchall()
     except Exception as error:
-        return None, f"PostGIS geometry를 불러오지 못했습니다: {error}"
+        return None, f"PostGIS 연결 실패: {error}"
 
     features = []
     for row_id, station_name, line_name, geometry_json in rows:
@@ -455,15 +462,18 @@ if "reports" not in st.session_state:
     st.session_state.reports = []
 
 postgres_config = get_postgres_config()
-postgis_geojson, postgis_error = load_postgis_geojson(
-    postgres_config["host"],
-    postgres_config["port"],
-    postgres_config["dbname"],
-    postgres_config["user"],
-    postgres_config["password"],
-    postgres_config["schema"],
-    postgres_config["table"],
-)
+if postgres_config["enabled"]:
+    postgis_geojson, postgis_error = load_postgis_geojson(
+        postgres_config["host"],
+        postgres_config["port"],
+        postgres_config["dbname"],
+        postgres_config["user"],
+        postgres_config["password"],
+        postgres_config["schema"],
+        postgres_config["table"],
+    )
+else:
+    postgis_geojson, postgis_error = None, None
 
 
 st.markdown(
