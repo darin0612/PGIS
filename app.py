@@ -302,27 +302,6 @@ st.markdown(
       * { box-sizing: border-box; }
       .stApp { background: #F4E9D7; }
       .block-container { padding: 3.5rem 1.25rem 1.25rem; max-width: 100%; }
-      section[data-testid="stSidebar"] {
-        transform: none !important;
-        visibility: visible !important;
-      }
-      section[data-testid="stSidebar"] > div:first-child {
-        width: 21rem !important;
-        min-width: 21rem !important;
-      }
-      [data-testid="collapsedControl"],
-      [data-testid="stSidebarCollapsedControl"],
-      [data-testid="stSidebarCollapseButton"],
-      button[title="Open sidebar"],
-      button[title="Close sidebar"],
-      button[title="사이드바 열기"],
-      button[title="사이드바 닫기"],
-      button[aria-label="Open sidebar"],
-      button[aria-label="Close sidebar"],
-      button[aria-label="사이드바 열기"],
-      button[aria-label="사이드바 닫기"] {
-        display: none !important;
-      }
       .app-header {
         height: 60px; margin: 0 -1.25rem 0; padding: 0 20px;
         background: #D97D55; color: white; display: flex; align-items: center;
@@ -379,7 +358,6 @@ st.markdown(
         border: 1px solid #B8C4A9; border-radius: 8px; padding: 12px 14px;
         background: #fffaf1; margin-top: 10px; font-size: 14px;
       }
-      div[data-testid="stSidebarContent"] { background: #F4E9D7; }
       .stButton > button[kind="primary"] { background: #D97D55; border-color: #D97D55; }
       .stButton > button[kind="primary"]:hover { background: #c96f4c; border-color: #c96f4c; }
       input[type="radio"],
@@ -410,7 +388,9 @@ st.markdown(
 )
 
 
-with st.sidebar:
+left_col, map_col, form_col = st.columns([0.85, 1.9, 1], gap="large")
+
+with left_col:
     st.markdown("### 프로젝트 정보")
     st.markdown(
         '<p class="project-copy">시민 참여 기반으로 지하철역의 점자블럭, 점자 안내시설 등 접근성 정보를 수집하고 공유합니다.</p>',
@@ -429,8 +409,6 @@ with st.sidebar:
     grade_legend()
     subway_line_legend()
 
-
-map_col, form_col = st.columns([1.9, 1], gap="large")
 
 with map_col:
     subway_map = build_map(st.session_state.stations, st.session_state.selected_station_id)
