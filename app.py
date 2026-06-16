@@ -112,6 +112,15 @@ SUBWAY_LINES = {
     },
 }
 
+EXTRA_LINE_COLORS = {
+    "3호선": "#EF7C1C",
+    "4호선": "#00A5DE",
+    "6호선": "#CD7C2F",
+    "7호선": "#747F00",
+    "8호선": "#E6186C",
+    "9호선": "#BDB092",
+}
+
 SAMPLE_STATIONS = [
     {"id": "1", "name": "시청역", "line": "1호선", "latitude": 37.5662, "longitude": 126.9769, "accessibility_score": 85, "grade": "B", "last_updated": "2024-01-15", "report_count": 12, "reliability": 85},
     {"id": "2", "name": "을지로입구역", "line": "2호선", "latitude": 37.5663, "longitude": 126.9822, "accessibility_score": 72, "grade": "C", "last_updated": "2024-01-10", "report_count": 8, "reliability": 70},
@@ -224,12 +233,12 @@ def get_postgres_config() -> dict:
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def load_postgis_geojson(host: str, port: int, dbname: str, user: str, _password: str, schema: str, table: str) -> tuple[dict | None, str | None]:
+def load_postgis_data(host: str, port: int, dbname: str, user: str, _password: str, schema: str, table: str) -> tuple[dict | None, list[dict], str | None]:
     try:
         import psycopg2
         from psycopg2 import sql
     except ModuleNotFoundError:
-        return None, "psycopg2-binary 패키지가 설치되어 있지 않습니다."
+        return None, [], "psycopg2-binary 패키지가 설치되어 있지 않습니다."
 
     query = sql.SQL(
         """
@@ -237,15 +246,26 @@ def load_postgis_geojson(host: str, port: int, dbname: str, user: str, _password
             id::text AS id,
             COALESCE("역"::text, '') AS station_name,
             COALESCE("호선"::text, '') AS line_name,
-            ST_AsGeoJSON(
+            COALESCE(NULLIF("위도"::text, '')::double precision, ST_Y(ST_Centroid(geom_4326))) AS latitude,
+            COALESCE(NULLIF("경도"::text, '')::double precision, ST_X(ST_Centroid(geom_4326))) AS longitude,
+            ST_AsGeoJSON(geom_4326) AS geometry_json
+        FROM (
+            SELECT
+                id,
+                "역",
+                "호선",
+                "위도",
+                "경도",
                 CASE
                     WHEN ST_SRID(geom) = 0 THEN ST_SetSRID(geom, 4326)
                     WHEN ST_SRID(geom) = 4326 THEN geom
                     ELSE ST_Transform(geom, 4326)
-                END
-            ) AS geometry_json
-        FROM {table_name}
-        WHERE geom IS NOT NULL
+                END AS geom_4326
+            FROM {table_name}
+            WHERE geom IS NOT NULL
+        ) AS source
+        WHERE geom_4326 IS NOT NULL
+        ORDER BY line_name, id
         """
     ).format(table_name=sql.Identifier(schema, table))
 
@@ -262,29 +282,60 @@ def load_postgis_geojson(host: str, port: int, dbname: str, user: str, _password
                 cursor.execute(query)
                 rows = cursor.fetchall()
     except Exception as error:
-        return None, f"PostGIS 연결 실패: {error}"
+        return None, [], f"PostGIS 연결 실패: {error}"
 
     features = []
-    for row_id, station_name, line_name, geometry_json in rows:
+    stations = []
+    for index, (row_id, station_name, line_name, latitude, longitude, geometry_json) in enumerate(rows, start=1):
         if not geometry_json:
             continue
+        if latitude is None or longitude is None:
+            continue
+
+        station_id = row_id or f"db-{index}"
+        station_line = normalize_line_name(line_name) or "호선 없음"
+        score = 70
+        stations.append(
+            {
+                "id": station_id,
+                "name": station_name or f"역 {index}",
+                "line": station_line,
+                "latitude": float(latitude),
+                "longitude": float(longitude),
+                "accessibility_score": score,
+                "grade": get_grade(score),
+                "last_updated": date.today().isoformat(),
+                "report_count": 0,
+                "reliability": 80,
+            }
+        )
         features.append(
             {
                 "type": "Feature",
                 "geometry": json.loads(geometry_json),
                 "properties": {
-                    "id": row_id,
+                    "id": station_id,
                     "station_name": station_name,
-                    "line_name": line_name,
+                    "line_name": station_line,
+                    "latitude": float(latitude),
+                    "longitude": float(longitude),
                 },
             }
         )
 
-    return {"type": "FeatureCollection", "features": features}, None
+    return {"type": "FeatureCollection", "features": features}, stations, None
+
+
+def normalize_line_name(line_name: str) -> str:
+    line_text = str(line_name or "").strip()
+    if line_text and line_text.isdigit():
+        return f"{line_text}호선"
+    return line_text
 
 
 def line_color(line_name: str) -> str:
-    return SUBWAY_LINES.get(line_name, {}).get("color", "#6FA4AF")
+    normalized_line = normalize_line_name(line_name)
+    return SUBWAY_LINES.get(normalized_line, {}).get("color") or EXTRA_LINE_COLORS.get(normalized_line, "#6FA4AF")
 
 
 def to_lat_lng(coordinate: list[float]) -> list[float]:
@@ -379,13 +430,49 @@ def add_subway_line_layers(subway_map: folium.Map) -> None:
         layer.add_to(subway_map)
 
 
-def build_map(stations: list[dict], selected_id: str | None, postgis_geojson: dict | None = None) -> folium.Map:
+def station_sort_key(station: dict) -> tuple[str, int | str]:
+    station_id = str(station.get("id", ""))
+    return (station.get("line", ""), int(station_id) if station_id.isdigit() else station_id)
+
+
+def add_station_line_layers(subway_map: folium.Map, stations: list[dict], layer_name: str = "같은 호선 연결") -> None:
+    grouped_stations: dict[str, list[dict]] = {}
+    for station in stations:
+        grouped_stations.setdefault(station["line"], []).append(station)
+
+    layer = folium.FeatureGroup(name=layer_name, show=True)
+    for line_name, line_stations in grouped_stations.items():
+        ordered_stations = sorted(line_stations, key=station_sort_key)
+        if len(ordered_stations) < 2:
+            continue
+
+        coordinates = [[station["latitude"], station["longitude"]] for station in ordered_stations]
+        color = line_color(line_name)
+        folium.PolyLine(
+            locations=coordinates,
+            color="white",
+            weight=9,
+            opacity=0.85,
+            tooltip=f"{normalize_line_name(line_name)} 연결",
+        ).add_to(layer)
+        folium.PolyLine(
+            locations=coordinates,
+            color=color,
+            weight=5,
+            opacity=0.95,
+            tooltip=f"{normalize_line_name(line_name)} 연결",
+        ).add_to(layer)
+
+    layer.add_to(subway_map)
+
+
+def build_map(stations: list[dict], selected_id: str | None, use_station_connections: bool = False) -> folium.Map:
     selected = next((station for station in stations if station["id"] == selected_id), None)
     center = [selected["latitude"], selected["longitude"]] if selected else [37.5665, 126.9780]
     zoom = 15 if selected else 13
     subway_map = folium.Map(location=center, zoom_start=zoom, tiles="CartoDB positron", control_scale=True)
-    if postgis_geojson and postgis_geojson.get("features"):
-        add_postgis_geometry_layer(subway_map, postgis_geojson)
+    if use_station_connections:
+        add_station_line_layers(subway_map, stations)
     else:
         add_subway_line_layers(subway_map)
 
@@ -447,23 +534,18 @@ def grade_legend() -> None:
 
 def subway_line_legend() -> None:
     st.markdown("#### 노선 색상")
-    for line_name, line_info in SUBWAY_LINES.items():
+    line_colors = {line_name: line_info["color"] for line_name, line_info in SUBWAY_LINES.items()}
+    line_colors.update(EXTRA_LINE_COLORS)
+    for line_name, color in line_colors.items():
         st.markdown(
-            f'<div class="legend-row"><span style="background:{line_info["color"]}"></span>{line_name}</div>',
+            f'<div class="legend-row"><span style="background:{color}"></span>{line_name}</div>',
             unsafe_allow_html=True,
         )
 
 
-if "stations" not in st.session_state:
-    st.session_state.stations = [station.copy() for station in SAMPLE_STATIONS]
-if "selected_station_id" not in st.session_state:
-    st.session_state.selected_station_id = st.session_state.stations[0]["id"]
-if "reports" not in st.session_state:
-    st.session_state.reports = []
-
 postgres_config = get_postgres_config()
 if postgres_config["enabled"]:
-    postgis_geojson, postgis_error = load_postgis_geojson(
+    postgis_geojson, postgis_stations, postgis_error = load_postgis_data(
         postgres_config["host"],
         postgres_config["port"],
         postgres_config["dbname"],
@@ -473,7 +555,20 @@ if postgres_config["enabled"]:
         postgres_config["table"],
     )
 else:
-    postgis_geojson, postgis_error = None, None
+    postgis_geojson, postgis_stations, postgis_error = None, [], None
+
+station_source = "postgis" if postgis_stations else "sample"
+initial_stations = postgis_stations if postgis_stations else SAMPLE_STATIONS
+if st.session_state.get("station_source") != station_source:
+    st.session_state.stations = [station.copy() for station in initial_stations]
+    st.session_state.selected_station_id = st.session_state.stations[0]["id"]
+    st.session_state.station_source = station_source
+elif "stations" not in st.session_state:
+    st.session_state.stations = [station.copy() for station in initial_stations]
+if "selected_station_id" not in st.session_state:
+    st.session_state.selected_station_id = st.session_state.stations[0]["id"]
+if "reports" not in st.session_state:
+    st.session_state.reports = []
 
 
 st.markdown(
@@ -593,7 +688,11 @@ with left_col:
 with map_col:
     if postgis_error:
         st.caption(postgis_error)
-    subway_map = build_map(st.session_state.stations, st.session_state.selected_station_id, postgis_geojson)
+    subway_map = build_map(
+        st.session_state.stations,
+        st.session_state.selected_station_id,
+        use_station_connections=station_source == "postgis",
+    )
     map_state = st_folium(
         subway_map,
         height=720,
@@ -610,7 +709,7 @@ with map_col:
 
 with form_col:
     st.markdown("### 접근성 정보 제보")
-    selected_line_color = SUBWAY_LINES.get(selected_station["line"], {}).get("color", "#6FA4AF")
+    selected_line_color = line_color(selected_station["line"])
     st.markdown(
         f"""
         <div class="selected-station-banner" style="background:{selected_line_color};">
