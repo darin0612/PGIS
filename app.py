@@ -199,7 +199,7 @@ def get_secret_config() -> dict[str, Any]:
 def get_postgres_defaults() -> dict[str, Any]:
     secrets = get_secret_config()
     return {
-        "enabled": True,
+        "enabled": False,
         "host": os.getenv("PGHOST") or secrets.get("host") or "localhost",
         "port": int(os.getenv("PGPORT") or secrets.get("port") or 5432),
         "dbname": os.getenv("PGDATABASE") or secrets.get("database") or secrets.get("dbname") or "postgres",
@@ -227,31 +227,10 @@ def initialize_postgres_state() -> None:
 
 def render_postgres_controls() -> dict[str, Any]:
     initialize_postgres_state()
-    with st.expander("PostGIS 연결", expanded=True):
-        st.checkbox("PostGIS 데이터 사용", key="postgres_enabled")
-        st.text_input("Host", key="postgres_host")
-        db_col, port_col = st.columns([1.2, 0.8])
-        with db_col:
-            st.text_input("Database", key="postgres_dbname")
-        with port_col:
-            st.number_input("Port", min_value=1, max_value=65535, step=1, key="postgres_port")
-        st.text_input("User", key="postgres_user")
-        st.text_input("Password", type="password", key="postgres_password")
-        schema_col, table_col = st.columns(2)
-        with schema_col:
-            st.text_input("Schema", key="postgres_schema")
-        with table_col:
-            st.text_input("Table", key="postgres_table")
-
-        if st.button("DB 역 다시 불러오기", use_container_width=True):
-            load_postgis_data.clear()
-            st.session_state.pop("station_dataset_key", None)
-            st.rerun()
-
-        st.caption('컬럼은 "id", "geom", "역", "위도", "경도", "호선" 기준으로 읽습니다.')
+    st.session_state.postgres_enabled = False
 
     return {
-        "enabled": st.session_state.postgres_enabled,
+        "enabled": False,
         "host": st.session_state.postgres_host.strip(),
         "port": int(st.session_state.postgres_port),
         "dbname": st.session_state.postgres_dbname.strip(),
@@ -659,7 +638,6 @@ def subway_line_legend() -> None:
 
 def postgis_status(config: dict[str, Any], stations: list[dict[str, Any]], error: str | None, row_count: int) -> None:
     if not config["enabled"]:
-        st.info("PostGIS 데이터 사용이 꺼져 있어 예시 역을 보여줍니다.")
         return
     if error:
         st.error(error)
