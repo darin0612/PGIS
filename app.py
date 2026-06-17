@@ -504,7 +504,7 @@ def line_color(line_name: Any) -> str:
     return LINE_COLORS.get(normalized_line, "#6FA4AF")
 
 
-def marker_html(grade: str, size: int = 36, font_size: int = 14) -> str:
+def marker_html(grade: str, size: int = 42, font_size: int = 15) -> str:
     color = GRADE_COLORS.get(grade, GRADE_COLORS["F"])
     text_color = GRADE_TEXT_COLORS.get(grade, "#ffffff")
     return f"""
@@ -539,14 +539,14 @@ def feature_tooltip(properties: dict[str, Any]) -> str:
 
 def add_line_geometry(layer: folium.FeatureGroup, coordinates: list[Any], color: str, tooltip: str) -> None:
     locations = [to_lat_lng(coordinate) for coordinate in coordinates]
-    folium.PolyLine(locations=locations, color="white", weight=9, opacity=0.8, tooltip=tooltip).add_to(layer)
-    folium.PolyLine(locations=locations, color=color, weight=5, opacity=0.95, tooltip=tooltip).add_to(layer)
+    folium.PolyLine(locations=locations, color="white", weight=5, opacity=0.8, tooltip=tooltip).add_to(layer)
+    folium.PolyLine(locations=locations, color=color, weight=3, opacity=0.95, tooltip=tooltip).add_to(layer)
 
 
 def add_point_geometry(layer: folium.FeatureGroup, coordinate: list[float], color: str, tooltip: str) -> None:
     folium.CircleMarker(
         location=to_lat_lng(coordinate),
-        radius=5,
+        radius=6,
         color="white",
         weight=2,
         fill=True,
@@ -604,8 +604,8 @@ def add_subway_line_layers(subway_map: folium.Map) -> None:
         layer = folium.FeatureGroup(name=line_name, show=True)
         coordinates = line_info["coordinates"]
         color = line_info["color"]
-        folium.PolyLine(locations=coordinates, color="white", weight=9, opacity=0.85, tooltip=line_name).add_to(layer)
-        folium.PolyLine(locations=coordinates, color=color, weight=5, opacity=0.95, tooltip=line_name).add_to(layer)
+        folium.PolyLine(locations=coordinates, color="white", weight=5, opacity=0.85, tooltip=line_name).add_to(layer)
+        folium.PolyLine(locations=coordinates, color=color, weight=3, opacity=0.95, tooltip=line_name).add_to(layer)
         layer.add_to(subway_map)
 
 
@@ -632,14 +632,14 @@ def add_station_line_layers(subway_map: folium.Map, stations: list[dict[str, Any
         folium.PolyLine(
             locations=coordinates,
             color="white",
-            weight=9,
+            weight=5,
             opacity=0.85,
             tooltip=f"{normalize_line_name(line_name)} 연결",
         ).add_to(layer)
         folium.PolyLine(
             locations=coordinates,
             color=color,
-            weight=5,
+            weight=3,
             opacity=0.95,
             tooltip=f"{normalize_line_name(line_name)} 연결",
         ).add_to(layer)
@@ -654,7 +654,7 @@ def fit_map_to_stations(subway_map: folium.Map, stations: list[dict[str, Any]]) 
     subway_map.fit_bounds(bounds, padding=(32, 32))
 
 
-def add_large_station_marker(subway_map: folium.Map, station: dict[str, Any], size: int = 36) -> None:
+def add_large_station_marker(subway_map: folium.Map, station: dict[str, Any], size: int = 42) -> None:
     folium.Marker(
         location=[station["latitude"], station["longitude"]],
         tooltip=f'{station["name"]} · {station["grade"]}등급',
@@ -672,7 +672,7 @@ def add_small_station_marker(subway_map: folium.Map, station: dict[str, Any]) ->
     color = line_color(station["line"])
     folium.CircleMarker(
         location=[station["latitude"], station["longitude"]],
-        radius=4,
+        radius=6,
         color="white",
         weight=2,
         fill=True,
@@ -691,7 +691,7 @@ def build_map(
 ) -> folium.Map:
     selected = next((station for station in stations if station["id"] == selected_id), None)
     center = [selected["latitude"], selected["longitude"]] if selected else [37.5665, 126.9780]
-    subway_map = folium.Map(location=center, zoom_start=10, tiles="OpenStreetMap", control_scale=True)
+    subway_map = folium.Map(location=center, zoom_start=10, tiles="CartoDB positron", control_scale=True)
     dense_station_map = len(stations) > 40
 
     if use_station_connections:
@@ -711,7 +711,7 @@ def build_map(
             add_large_station_marker(subway_map, station)
 
     if dense_station_map and selected:
-        add_large_station_marker(subway_map, selected, size=34)
+        add_large_station_marker(subway_map, selected, size=42)
 
     folium.LayerControl(collapsed=True).add_to(subway_map)
     return subway_map
