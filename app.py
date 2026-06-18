@@ -669,17 +669,17 @@ def add_large_station_marker(subway_map: folium.Map, station: dict[str, Any], si
 
 
 def add_small_station_marker(subway_map: folium.Map, station: dict[str, Any]) -> None:
-    color = line_color(station["line"])
-    folium.CircleMarker(
+    size = 24
+    folium.Marker(
         location=[station["latitude"], station["longitude"]],
-        radius=6,
-        color="white",
-        weight=2,
-        fill=True,
-        fill_color=color,
-        fill_opacity=0.95,
         tooltip=f'{station["name"]} · {station["grade"]}등급',
         popup=folium.Popup(popup_html(station), max_width=260),
+        icon=folium.DivIcon(
+            html=marker_html(station["grade"], size=size, font_size=11),
+            icon_size=(size, size),
+            icon_anchor=(size // 2, size // 2),
+            class_name="custom-marker compact-marker",
+        ),
     ).add_to(subway_map)
 
 
@@ -711,7 +711,7 @@ def build_map(
             add_large_station_marker(subway_map, station)
 
     if dense_station_map and selected:
-        add_large_station_marker(subway_map, selected, size=42)
+        add_large_station_marker(subway_map, selected, size=46)
 
     folium.LayerControl(collapsed=True).add_to(subway_map)
     return subway_map
@@ -866,6 +866,10 @@ st.markdown(
       .meta-row strong { color: #3f4a35; }
       .legend-row { display: flex; align-items: center; gap: 8px; color: #4f675f; font-size: 14px; margin: 6px 0; }
       .legend-row span { width: 24px; height: 16px; border-radius: 2px; display: inline-block; }
+      .compact-marker div {
+        border-width: 2px !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,.25) !important;
+      }
       .report-summary {
         border: 1px solid #B8C4A9; border-radius: 8px; padding: 12px 14px;
         background: #fffaf1; margin-top: 10px; font-size: 14px;
