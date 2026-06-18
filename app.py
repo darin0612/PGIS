@@ -1,12 +1,15 @@
+import base64
 import html
 import json
 import os
 import re
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 import folium
 import streamlit as st
+import streamlit.components.v1 as components
+from folium.plugins import LocateControl
 from streamlit_folium import st_folium
 
 
@@ -52,6 +55,9 @@ LINE_COLORS = {
 DEFAULT_MAP_CENTER = [37.5663, 126.9882]
 DEFAULT_MAP_ZOOM = 14
 STATION_DATASET_VERSION = "sample-junggu-default-v1"
+VOICE_REPORT_QUERY_PARAM = "voice_report"
+GPS_REPORT_STORAGE_PATH = os.getenv("PGIS_REPORT_STORAGE", os.path.join("data", "gps_voice_reports.jsonl"))
+GPS_REPORT_TABLE_NAME = os.getenv("PGIS_REPORT_TABLE", "gps_voice_reports")
 
 SUBWAY_LINE_STATIONS = {
     "1호선": [
@@ -292,9 +298,7 @@ def calculate_accessibility_score(data: dict[str, Any]) -> dict[str, Any]:
 
     braille_block = 0
     if data["braille_block_installed"]:
-        braille_block += 15
-        if data["braille_block_connected"]:
-            braille_block += 15
+        braille_block += 30
         if not data["braille_block_damaged"]:
             braille_block += 10
 
@@ -320,6 +324,406 @@ def calculate_accessibility_score(data: dict[str, Any]) -> dict[str, Any]:
         "grade": get_grade(total),
         "hazards": hazards,
     }
+
+
+def choice_or_default(value: Any, options: list[str], default: str) -> str:
+    text = str(value or "").strip()
+    return text if text in options else default
+
+
+def bool_value(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    text = str(value or "").strip().lower()
+    return text in {"1", "true", "yes", "y", "네", "예", "응", "있음", "맞음"}
+
+
+def rating_value(value: Any) -> int:
+    try:
+        rating = int(value)
+    except (TypeError, ValueError):
+        rating = 3
+    return max(1, min(5, rating))
+
+
+def get_report_database_url() -> str:
+    for key in ("PGIS_DATABASE_URL", "DATABASE_URL"):
+        value = os.getenv(key)
+        if value:
+            return value
+
+    try:
+        if st.secrets.get("database_url"):
+            return str(st.secrets["database_url"])
+        postgres_secret = st.secrets.get("postgres", {})
+        if isinstance(postgres_secret, dict):
+            for key in ("url", "database_url", "connection_string"):
+                if postgres_secret.get(key):
+                    return str(postgres_secret[key])
+    except Exception:
+        return ""
+    return ""
+
+
+def get_psycopg2_modules() -> tuple[Any, Any] | tuple[None, None]:
+    try:
+        import psycopg2
+        from psycopg2 import sql
+    except ModuleNotFoundError:
+        return None, None
+    return psycopg2, sql
+
+
+def ensure_gps_report_table(cursor: Any, sql: Any) -> None:
+    table = sql.Identifier(GPS_REPORT_TABLE_NAME)
+    cursor.execute(
+        sql.SQL(
+            """
+            CREATE TABLE IF NOT EXISTS {table} (
+                id TEXT PRIMARY KEY,
+                submitted_at TIMESTAMPTZ NOT NULL,
+                latitude DOUBLE PRECISION NOT NULL,
+                longitude DOUBLE PRECISION NOT NULL,
+                accuracy DOUBLE PRECISION,
+                input_method TEXT NOT NULL DEFAULT 'voice_gps',
+                station_id TEXT,
+                station_name TEXT,
+                mobility_access TEXT,
+                braille_block_installed BOOLEAN NOT NULL DEFAULT FALSE,
+                braille_block_damaged BOOLEAN NOT NULL DEFAULT FALSE,
+                braille_map BOOLEAN NOT NULL DEFAULT FALSE,
+                braille_sign BOOLEAN NOT NULL DEFAULT FALSE,
+                guidance_status TEXT,
+                readability TEXT,
+                braille_correction TEXT,
+                audio_guidance BOOLEAN NOT NULL DEFAULT FALSE,
+                wheelchair_lift BOOLEAN NOT NULL DEFAULT FALSE,
+                user_rating INTEGER,
+                hazards_text TEXT,
+                hazards JSONB NOT NULL DEFAULT '[]'::jsonb,
+                comment TEXT,
+                submitter_name TEXT,
+                mobility_access_score INTEGER,
+                braille_block INTEGER,
+                guidance INTEGER,
+                facilities INTEGER,
+                usability INTEGER,
+                total INTEGER,
+                grade TEXT,
+                raw_answers JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+                payload JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        ).format(table=table)
+    )
+    cursor.execute(
+        sql.SQL("CREATE INDEX IF NOT EXISTS {index} ON {table} (submitted_at DESC)").format(
+            index=sql.Identifier(f"{GPS_REPORT_TABLE_NAME}_submitted_at_idx"),
+            table=table,
+        )
+    )
+    cursor.execute(
+        sql.SQL("CREATE INDEX IF NOT EXISTS {index} ON {table} (grade)").format(
+            index=sql.Identifier(f"{GPS_REPORT_TABLE_NAME}_grade_idx"),
+            table=table,
+        )
+    )
+
+
+def gps_report_params(report: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(report.get("id")),
+        "submitted_at": report.get("submitted_at") or datetime.now().isoformat(timespec="seconds"),
+        "latitude": float(report["latitude"]),
+        "longitude": float(report["longitude"]),
+        "accuracy": report.get("accuracy"),
+        "input_method": report.get("input_method") or "voice_gps",
+        "station_id": report.get("station_id") or "",
+        "station_name": report.get("station_name") or "GPS 위치 제보",
+        "mobility_access": report.get("mobility_access") or "",
+        "braille_block_installed": bool(report.get("braille_block_installed")),
+        "braille_block_damaged": bool(report.get("braille_block_damaged")),
+        "braille_map": bool(report.get("braille_map")),
+        "braille_sign": bool(report.get("braille_sign")),
+        "guidance_status": report.get("guidance_status") or "",
+        "readability": report.get("readability") or "",
+        "braille_correction": report.get("braille_correction") or "",
+        "audio_guidance": bool(report.get("audio_guidance")),
+        "wheelchair_lift": bool(report.get("wheelchair_lift")),
+        "user_rating": int(report.get("user_rating") or 0),
+        "hazards_text": report.get("hazards") if isinstance(report.get("hazards"), str) else ", ".join(report.get("hazards", [])),
+        "hazards": json.dumps(report.get("hazards") if isinstance(report.get("hazards"), list) else [], ensure_ascii=False),
+        "comment": report.get("comment") or "",
+        "submitter_name": report.get("submitter_name") or "익명",
+        "mobility_access_score": int(report.get("mobility_access_score") or 0),
+        "braille_block": int(report.get("braille_block") or 0),
+        "guidance": int(report.get("guidance") or 0),
+        "facilities": int(report.get("facilities") or 0),
+        "usability": int(report.get("usability") or 0),
+        "total": int(report.get("total") or 0),
+        "grade": report.get("grade") or "",
+        "raw_answers": json.dumps(report.get("raw_answers") or {}, ensure_ascii=False),
+        "payload": json.dumps(report, ensure_ascii=False),
+    }
+
+
+def save_report_to_database(report: dict[str, Any]) -> str | None:
+    database_url = get_report_database_url()
+    if not database_url:
+        return "DB URL이 설정되어 있지 않습니다. PGIS_DATABASE_URL 또는 DATABASE_URL을 설정해 주세요."
+
+    psycopg2, sql = get_psycopg2_modules()
+    if psycopg2 is None or sql is None:
+        return "psycopg2-binary 패키지가 설치되어 있지 않습니다."
+
+    try:
+        with psycopg2.connect(database_url, connect_timeout=5) as conn:
+            with conn.cursor() as cursor:
+                ensure_gps_report_table(cursor, sql)
+                cursor.execute(
+                    sql.SQL(
+                        """
+                        INSERT INTO {table} (
+                            id, submitted_at, latitude, longitude, accuracy, input_method,
+                            station_id, station_name, mobility_access,
+                            braille_block_installed, braille_block_damaged,
+                            braille_map, braille_sign, guidance_status, readability, braille_correction,
+                            audio_guidance, wheelchair_lift, user_rating, hazards_text, hazards,
+                            comment, submitter_name, mobility_access_score, braille_block, guidance,
+                            facilities, usability, total, grade, raw_answers, payload
+                        ) VALUES (
+                            %(id)s, %(submitted_at)s, %(latitude)s, %(longitude)s, %(accuracy)s, %(input_method)s,
+                            %(station_id)s, %(station_name)s, %(mobility_access)s,
+                            %(braille_block_installed)s, %(braille_block_damaged)s,
+                            %(braille_map)s, %(braille_sign)s, %(guidance_status)s, %(readability)s, %(braille_correction)s,
+                            %(audio_guidance)s, %(wheelchair_lift)s, %(user_rating)s, %(hazards_text)s, %(hazards)s::jsonb,
+                            %(comment)s, %(submitter_name)s, %(mobility_access_score)s, %(braille_block)s, %(guidance)s,
+                            %(facilities)s, %(usability)s, %(total)s, %(grade)s, %(raw_answers)s::jsonb, %(payload)s::jsonb
+                        )
+                        ON CONFLICT (id) DO UPDATE SET
+                            submitted_at = EXCLUDED.submitted_at,
+                            latitude = EXCLUDED.latitude,
+                            longitude = EXCLUDED.longitude,
+                            accuracy = EXCLUDED.accuracy,
+                            input_method = EXCLUDED.input_method,
+                            station_id = EXCLUDED.station_id,
+                            station_name = EXCLUDED.station_name,
+                            mobility_access = EXCLUDED.mobility_access,
+                            braille_block_installed = EXCLUDED.braille_block_installed,
+                            braille_block_damaged = EXCLUDED.braille_block_damaged,
+                            braille_map = EXCLUDED.braille_map,
+                            braille_sign = EXCLUDED.braille_sign,
+                            guidance_status = EXCLUDED.guidance_status,
+                            readability = EXCLUDED.readability,
+                            braille_correction = EXCLUDED.braille_correction,
+                            audio_guidance = EXCLUDED.audio_guidance,
+                            wheelchair_lift = EXCLUDED.wheelchair_lift,
+                            user_rating = EXCLUDED.user_rating,
+                            hazards_text = EXCLUDED.hazards_text,
+                            hazards = EXCLUDED.hazards,
+                            comment = EXCLUDED.comment,
+                            submitter_name = EXCLUDED.submitter_name,
+                            mobility_access_score = EXCLUDED.mobility_access_score,
+                            braille_block = EXCLUDED.braille_block,
+                            guidance = EXCLUDED.guidance,
+                            facilities = EXCLUDED.facilities,
+                            usability = EXCLUDED.usability,
+                            total = EXCLUDED.total,
+                            grade = EXCLUDED.grade,
+                            raw_answers = EXCLUDED.raw_answers,
+                            payload = EXCLUDED.payload,
+                            updated_at = NOW()
+                        """
+                    ).format(table=sql.Identifier(GPS_REPORT_TABLE_NAME)),
+                    gps_report_params(report),
+                )
+    except Exception as error:
+        return str(error)
+    return None
+
+
+def load_reports_from_database() -> tuple[list[dict[str, Any]], str | None]:
+    database_url = get_report_database_url()
+    if not database_url:
+        return [], None
+
+    psycopg2, sql = get_psycopg2_modules()
+    if psycopg2 is None or sql is None:
+        return [], "psycopg2-binary 패키지가 설치되어 있지 않습니다."
+
+    try:
+        with psycopg2.connect(database_url, connect_timeout=5) as conn:
+            with conn.cursor() as cursor:
+                ensure_gps_report_table(cursor, sql)
+                cursor.execute(
+                    sql.SQL("SELECT payload FROM {table} ORDER BY submitted_at DESC LIMIT 500").format(
+                        table=sql.Identifier(GPS_REPORT_TABLE_NAME)
+                    )
+                )
+                rows = cursor.fetchall()
+    except Exception as error:
+        return [], str(error)
+
+    reports = []
+    for (payload,) in rows:
+        if isinstance(payload, dict):
+            report = payload
+        else:
+            try:
+                report = json.loads(payload)
+            except (TypeError, json.JSONDecodeError):
+                continue
+        if "latitude" in report and "longitude" in report:
+            reports.append(report)
+    return reports, None
+
+
+def sync_local_reports_to_database() -> str | None:
+    if not get_report_database_url() or not os.path.exists(GPS_REPORT_STORAGE_PATH):
+        return None
+
+    errors = []
+    for report in load_reports_from_file():
+        error = save_report_to_database(report)
+        if error:
+            errors.append(error)
+            break
+    return errors[0] if errors else None
+
+
+def load_reports_from_file() -> list[dict[str, Any]]:
+    if not os.path.exists(GPS_REPORT_STORAGE_PATH):
+        return []
+
+    reports = []
+    try:
+        with open(GPS_REPORT_STORAGE_PATH, "r", encoding="utf-8") as report_file:
+            for line in report_file:
+                try:
+                    report = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if "latitude" in report and "longitude" in report:
+                    reports.append(report)
+    except OSError:
+        return []
+    return reports
+
+
+def load_location_reports() -> list[dict[str, Any]]:
+    db_reports, db_error = load_reports_from_database()
+    if db_reports:
+        return db_reports
+
+    if db_error:
+        st.session_state.location_report_db_error = db_error
+    return load_reports_from_file()
+
+
+def append_location_report(report: dict[str, Any]) -> str | None:
+    db_error = save_report_to_database(report) if get_report_database_url() else None
+
+    try:
+        storage_dir = os.path.dirname(GPS_REPORT_STORAGE_PATH)
+        if storage_dir:
+            os.makedirs(storage_dir, exist_ok=True)
+        with open(GPS_REPORT_STORAGE_PATH, "a", encoding="utf-8") as report_file:
+            report_file.write(json.dumps(report, ensure_ascii=False) + "\n")
+    except OSError as error:
+        if not get_report_database_url():
+            return str(error)
+    return db_error
+
+
+def build_location_report(payload: dict[str, Any]) -> dict[str, Any]:
+    latitude = float(payload["latitude"])
+    longitude = float(payload["longitude"])
+    if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+        raise ValueError("GPS 좌표 범위가 올바르지 않습니다.")
+
+    guidance_status = choice_or_default(payload.get("guidance_status"), GUIDANCE_OPTIONS, "둘다 없음")
+    readability = choice_or_default(payload.get("readability"), READABILITY_OPTIONS, "정확함")
+    mobility_access = choice_or_default(payload.get("mobility_access"), MOBILITY_ACCESS_OPTIONS, MOBILITY_ACCESS_OPTIONS[0])
+    report_data = {
+        "station_id": "",
+        "station_name": "GPS 위치 제보",
+        "mobility_access": mobility_access,
+        "braille_block_installed": bool_value(payload.get("braille_block_installed")),
+        "braille_block_damaged": bool_value(payload.get("braille_block_damaged")),
+        "braille_map": guidance_status in ["둘다 있음", "점자 노선도만 있음"],
+        "braille_sign": guidance_status in ["둘다 있음", "점자 안내판만 있음"],
+        "guidance_status": guidance_status,
+        "readability": readability,
+        "braille_correction": str(payload.get("braille_correction") or "").strip()
+        if readability == "일부 수정 필요"
+        else "",
+        "audio_guidance": bool_value(payload.get("audio_guidance")),
+        "wheelchair_lift": bool_value(payload.get("wheelchair_lift")),
+        "user_rating": rating_value(payload.get("user_rating")),
+        "hazards": str(payload.get("hazards") or "").strip(),
+        "comment": str(payload.get("comment") or "").strip(),
+        "submitter_name": str(payload.get("submitter_name") or "").strip() or "익명",
+        "submitted_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    score = calculate_accessibility_score(report_data)
+    return {
+        **report_data,
+        **score,
+        "id": str(payload.get("report_id") or f"gps-{datetime.now().timestamp()}"),
+        "latitude": latitude,
+        "longitude": longitude,
+        "accuracy": payload.get("accuracy"),
+        "input_method": "voice_gps",
+        "raw_answers": payload.get("raw_answers") or {},
+    }
+
+
+def decode_voice_report_payload(raw_payload: str) -> dict[str, Any]:
+    padding = "=" * (-len(raw_payload) % 4)
+    decoded = base64.b64decode((raw_payload + padding).encode("ascii")).decode("utf-8")
+    payload = json.loads(decoded)
+    if not isinstance(payload, dict):
+        raise ValueError("제보 데이터 형식이 올바르지 않습니다.")
+    return payload
+
+
+def clear_voice_report_query_param() -> None:
+    try:
+        del st.query_params[VOICE_REPORT_QUERY_PARAM]
+    except Exception:
+        return
+
+
+def process_voice_report_query() -> None:
+    raw_payload = st.query_params.get(VOICE_REPORT_QUERY_PARAM)
+    if not raw_payload:
+        return
+    if isinstance(raw_payload, list):
+        raw_payload = raw_payload[-1]
+
+    try:
+        payload = decode_voice_report_payload(str(raw_payload))
+        report = build_location_report(payload)
+    except Exception as error:
+        st.session_state.voice_report_error = f"GPS 음성 제보를 저장하지 못했습니다: {error}"
+        clear_voice_report_query_param()
+        return
+
+    processed_ids = st.session_state.setdefault("processed_voice_report_ids", set())
+    if report["id"] in processed_ids:
+        clear_voice_report_query_param()
+        return
+
+    save_error = append_location_report(report)
+    st.session_state.location_reports.append(report)
+    processed_ids.add(report["id"])
+    if save_error:
+        st.session_state.voice_report_error = f"지도에는 표시했지만 DB 적재는 실패했습니다: {save_error}"
+    else:
+        st.session_state.voice_report_notice = "GPS 음성 제보를 DB에 적재하고 지도에 표시했습니다."
+    clear_voice_report_query_param()
 
 
 def get_secret_config() -> dict[str, Any]:
@@ -699,11 +1103,74 @@ def add_small_station_marker(subway_map: folium.Map, station: dict[str, Any]) ->
     ).add_to(subway_map)
 
 
+def location_report_popup_html(report: dict[str, Any]) -> str:
+    grade = html.escape(str(report.get("grade", "-")))
+    score = html.escape(str(report.get("total", "-")))
+    comment = html.escape(str(report.get("comment") or "추가 의견 없음"))
+    submitted_at = html.escape(str(report.get("submitted_at", "")))
+    return f"""
+    <div style="min-width:220px">
+      <h3 style="font-weight:700;margin:0 0 8px;font-size:16px">GPS 음성 제보</h3>
+      <p style="margin:4px 0;font-size:14px"><strong>접근성:</strong> {score}점 ({grade}등급)</p>
+      <p style="margin:4px 0;font-size:14px"><strong>이동 방식:</strong> {html.escape(str(report.get("mobility_access", "")))}</p>
+      <p style="margin:4px 0;font-size:14px"><strong>점자 안내:</strong> {html.escape(str(report.get("guidance_status", "")))}</p>
+      <p style="margin:4px 0;font-size:14px"><strong>의견:</strong> {comment}</p>
+      <p style="margin:6px 0 0;font-size:12px;color:#6B7280">{submitted_at}</p>
+    </div>
+    """
+
+
+def add_location_report_markers(subway_map: folium.Map, reports: list[dict[str, Any]]) -> None:
+    if not reports:
+        return
+
+    layer = folium.FeatureGroup(name="GPS 음성 제보", show=True)
+    for report in reports:
+        try:
+            latitude = float(report["latitude"])
+            longitude = float(report["longitude"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        grade = str(report.get("grade", "F"))
+        color = GRADE_COLORS.get(grade, GRADE_COLORS["F"])
+        folium.CircleMarker(
+            location=[latitude, longitude],
+            radius=10,
+            color="white",
+            weight=3,
+            fill=True,
+            fill_color=color,
+            fill_opacity=0.95,
+            tooltip=f'GPS 음성 제보 · {report.get("total", "-")}점 ({grade}등급)',
+            popup=folium.Popup(location_report_popup_html(report), max_width=300),
+        ).add_to(layer)
+
+        accuracy = report.get("accuracy")
+        try:
+            accuracy_radius = float(accuracy)
+        except (TypeError, ValueError):
+            accuracy_radius = 0
+        if 0 < accuracy_radius <= 200:
+            folium.Circle(
+                location=[latitude, longitude],
+                radius=accuracy_radius,
+                color=color,
+                weight=1,
+                fill=True,
+                fill_color=color,
+                fill_opacity=0.08,
+                opacity=0.25,
+            ).add_to(layer)
+
+    layer.add_to(subway_map)
+
+
 def build_map(
     stations: list[dict[str, Any]],
     selected_id: str | None,
     use_station_connections: bool = False,
     postgis_geojson: dict[str, Any] | None = None,
+    location_reports: list[dict[str, Any]] | None = None,
 ) -> folium.Map:
     selected = next((station for station in stations if station["id"] == selected_id), None)
     center = [selected["latitude"], selected["longitude"]] if selected else DEFAULT_MAP_CENTER
@@ -729,6 +1196,12 @@ def build_map(
     if dense_station_map and selected:
         add_large_station_marker(subway_map, selected, size=58)
 
+    add_location_report_markers(subway_map, location_reports or [])
+    LocateControl(
+        strings={"title": "현재 위치 보기", "popup": "현재 위치"},
+        flyTo=True,
+        keepCurrentZoomLevel=True,
+    ).add_to(subway_map)
     folium.LayerControl(collapsed=True).add_to(subway_map)
     return subway_map
 
@@ -785,6 +1258,17 @@ def sync_station_state(source: str, initial_stations: list[dict[str, Any]]) -> N
 
     if "reports" not in st.session_state:
         st.session_state.reports = []
+    if "location_reports" not in st.session_state:
+        st.session_state.location_reports = load_location_reports()
+    if "processed_voice_report_ids" not in st.session_state:
+        st.session_state.processed_voice_report_ids = {
+            str(report.get("id")) for report in st.session_state.location_reports if report.get("id")
+        }
+    if "location_reports_db_synced" not in st.session_state:
+        sync_error = sync_local_reports_to_database()
+        if sync_error:
+            st.session_state.location_report_db_error = sync_error
+        st.session_state.location_reports_db_synced = True
 
 
 def station_card(station: dict[str, Any]) -> None:
@@ -857,6 +1341,301 @@ def subway_line_legend() -> None:
         f'{"".join(rows)}'
         f'</section>',
         unsafe_allow_html=True,
+    )
+
+
+VOICE_GPS_RECORDER_HTML = r"""
+<div class="voice-panel">
+  <div class="voice-head">
+    <div>
+      <div class="voice-kicker">GPS 음성 제보</div>
+      <h3>현재 위치에서 답변하기</h3>
+    </div>
+    <span id="gpsStatus">대기</span>
+  </div>
+  <div id="questionBox" class="question-box">시작하면 현재 위치를 확인하고 질문을 하나씩 읽습니다.</div>
+  <div id="heardBox" class="heard-box">음성 답변이 여기에 표시됩니다.</div>
+  <div class="voice-actions">
+    <button id="startBtn" type="button">시작</button>
+    <button id="saveBtn" type="button" disabled>지도에 저장</button>
+  </div>
+  <div id="previewBox" class="preview-box"></div>
+  <textarea id="fallbackBox" class="fallback-box" readonly></textarea>
+</div>
+
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Source Sans Pro", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  .voice-panel {
+    min-height: 390px; padding: 16px; color: #111827; background: rgba(255,255,255,.96);
+    border: 1px solid #E5E7EB; border-radius: 8px; box-shadow: 0 14px 32px rgba(17,24,39,.07);
+  }
+  .voice-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .voice-kicker { color: #6B7280; font-size: 12px; font-weight: 800; margin-bottom: 4px; }
+  h3 { margin: 0; font-size: 18px; line-height: 1.25; }
+  #gpsStatus {
+    flex-shrink: 0; border: 1px solid #E5E7EB; border-radius: 999px; padding: 5px 9px;
+    color: #4B5563; background: #F8FAFC; font-size: 12px; font-weight: 800;
+  }
+  .question-box, .heard-box, .preview-box {
+    border: 1px solid #E5E7EB; border-radius: 8px; padding: 10px 12px; line-height: 1.55;
+  }
+  .question-box { min-height: 58px; background: #F9FAFB; font-weight: 800; }
+  .heard-box { min-height: 54px; margin-top: 8px; color: #4B5563; background: #FFFFFF; }
+  .preview-box { display: none; margin-top: 10px; color: #374151; background: #F8FAFC; font-size: 13px; }
+  .voice-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+  button {
+    border: 0; border-radius: 999px; padding: 10px 12px; font-size: 14px; font-weight: 900;
+    cursor: pointer; background: #111827; color: #FFFFFF;
+  }
+  button:disabled { cursor: not-allowed; background: #D1D5DB; color: #6B7280; }
+  button + button { background: #087F5B; }
+  .fallback-box {
+    display: none; width: 100%; height: 86px; margin-top: 10px; border: 1px solid #E5E7EB;
+    border-radius: 8px; padding: 10px; color: #374151; background: #FFFFFF; resize: vertical;
+  }
+</style>
+
+<script>
+  const queryParam = "__QUERY_PARAM__";
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const startBtn = document.getElementById("startBtn");
+  const saveBtn = document.getElementById("saveBtn");
+  const gpsStatus = document.getElementById("gpsStatus");
+  const questionBox = document.getElementById("questionBox");
+  const heardBox = document.getElementById("heardBox");
+  const previewBox = document.getElementById("previewBox");
+  const fallbackBox = document.getElementById("fallbackBox");
+
+  const state = { payload: null };
+  const mobilityOptions = {
+    elevator: "지상까지 엘리베이터로 이동 가능",
+    escalator: "지상까지 에스컬레이터로 이동 가능",
+    ramp: "지상까지 경사로로 이동 가능",
+    stairs: "계단을 필수로 거쳐야 함"
+  };
+
+  const questions = [
+    { key: "mobility_access", prompt: "1번 이동접근성 정보입니다. 지상까지 이동 방식은 엘리베이터, 에스컬레이터, 경사로, 계단 중 무엇인가요?", parse: parseMobility },
+    { key: "braille_block_installed", prompt: "2번 점자블럭 정보입니다. 점자블럭이 설치되어 있나요? 네 또는 아니오로 답해주세요.", parse: parseYesNo },
+    { key: "braille_block_damaged", prompt: "점자블럭이 훼손되어 있나요? 네 또는 아니오로 답해주세요.", parse: parseYesNo },
+    { key: "guidance_status", prompt: "3번 점자 안내 정보입니다. 점자 안내시설 상태는 둘다 있음, 점자 노선도만 있음, 점자 안내판만 있음, 둘다 없음 중 무엇인가요?", parse: parseGuidance },
+    { key: "readability", prompt: "점자 정확성은 정확함 또는 일부 수정 필요 중 무엇인가요?", parse: parseReadability },
+    { key: "braille_correction", prompt: "수정사항이 있으면 말해주세요. 없으면 없음이라고 말해주세요.", parse: parseFreeText },
+    { key: "audio_guidance", prompt: "4번 이동 편의시설입니다. 음성 안내 장치가 있나요? 네 또는 아니오로 답해주세요.", parse: parseYesNo },
+    { key: "wheelchair_lift", prompt: "계단에 휠체어 리프트가 있나요? 네 또는 아니오로 답해주세요.", parse: parseYesNo },
+    { key: "user_rating", prompt: "5번 이용 가능성입니다. 전반적 평가는 1점부터 5점까지 몇 점인가요?", parse: parseRating },
+    { key: "hazards", prompt: "위험 요소가 있으면 말해주세요. 여러 개면 쉼표처럼 잠시 끊어 말해주세요. 없으면 없음이라고 말해주세요.", parse: parseFreeText },
+    { key: "comment", prompt: "추가 의견을 말해주세요. 없으면 없음이라고 말해주세요.", parse: parseFreeText },
+    { key: "submitter_name", prompt: "제보자 이름을 말해주세요. 익명이면 익명이라고 말해주세요.", parse: parseName }
+  ];
+
+  function normalizeText(text) {
+    return String(text || "").trim().replace(/\s+/g, " ");
+  }
+
+  function includesAny(text, words) {
+    return words.some((word) => text.includes(word));
+  }
+
+  function parseMobility(text) {
+    const value = normalizeText(text);
+    if (includesAny(value, ["엘리베이터", "엘레베이터", "승강기"])) return mobilityOptions.elevator;
+    if (includesAny(value, ["에스컬레이터", "에스카레이터"])) return mobilityOptions.escalator;
+    if (includesAny(value, ["경사로", "램프"])) return mobilityOptions.ramp;
+    if (includesAny(value, ["계단"])) return mobilityOptions.stairs;
+    return mobilityOptions.elevator;
+  }
+
+  function parseYesNo(text) {
+    const value = normalizeText(text);
+    if (includesAny(value, ["없", "아니", "아뇨", "안 ", "안됨", "안돼", "않", "아니오"])) return false;
+    if (includesAny(value, ["네", "예", "응", "있", "맞", "설치", "훼손"])) return true;
+    return false;
+  }
+
+  function parseGuidance(text) {
+    const value = normalizeText(text);
+    if (includesAny(value, ["없", "둘다 없음", "둘 다 없음"])) return "둘다 없음";
+    if (includesAny(value, ["둘다", "둘 다"]) || (value.includes("노선도") && value.includes("안내판"))) return "둘다 있음";
+    if (value.includes("노선도")) return "점자 노선도만 있음";
+    if (value.includes("안내판")) return "점자 안내판만 있음";
+    return "둘다 없음";
+  }
+
+  function parseReadability(text) {
+    const value = normalizeText(text);
+    if (includesAny(value, ["수정", "틀", "오류", "일부", "부정확", "안 맞", "않"])) return "일부 수정 필요";
+    return "정확함";
+  }
+
+  function parseRating(text) {
+    const value = normalizeText(text);
+    const koreanNumbers = { "일": 1, "하나": 1, "한": 1, "이": 2, "둘": 2, "삼": 3, "셋": 3, "사": 4, "넷": 4, "오": 5, "다섯": 5 };
+    const digit = value.match(/[1-5]/);
+    if (digit) return Number(digit[0]);
+    for (const [word, number] of Object.entries(koreanNumbers)) {
+      if (value.includes(word)) return number;
+    }
+    return 3;
+  }
+
+  function parseFreeText(text) {
+    const value = normalizeText(text);
+    if (!value || includesAny(value, ["없음", "없어요", "없습니다", "없어", "없다", "아니요"])) return "";
+    return value;
+  }
+
+  function parseName(text) {
+    const value = parseFreeText(text);
+    return value || "익명";
+  }
+
+  function setStatus(text) {
+    gpsStatus.textContent = text;
+  }
+
+  function showQuestion(text) {
+    questionBox.textContent = text;
+  }
+
+  function showHeard(text) {
+    heardBox.textContent = text || "답변을 기다리는 중입니다.";
+  }
+
+  function speak(text) {
+    return new Promise((resolve) => {
+      if (!("speechSynthesis" in window)) {
+        resolve();
+        return;
+      }
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "ko-KR";
+      utterance.rate = 0.95;
+      utterance.onend = resolve;
+      utterance.onerror = resolve;
+      window.speechSynthesis.speak(utterance);
+    });
+  }
+
+  function listen() {
+    return new Promise((resolve, reject) => {
+      if (!SpeechRecognition) {
+        reject(new Error("이 브라우저는 음성 인식을 지원하지 않습니다."));
+        return;
+      }
+      const recognition = new SpeechRecognition();
+      recognition.lang = "ko-KR";
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+      recognition.onresult = (event) => resolve(event.results[0][0].transcript);
+      recognition.onerror = (event) => reject(new Error(event.error || "음성 인식 실패"));
+      recognition.onnomatch = () => reject(new Error("음성을 인식하지 못했습니다."));
+      recognition.start();
+    });
+  }
+
+  function getPosition() {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error("이 브라우저는 GPS를 지원하지 않습니다."));
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        timeout: 15000,
+        maximumAge: 0
+      });
+    });
+  }
+
+  function renderPreview(payload) {
+    previewBox.style.display = "block";
+    previewBox.innerHTML = [
+      `<strong>위치</strong> ${payload.latitude.toFixed(6)}, ${payload.longitude.toFixed(6)}`,
+      `<strong>이동</strong> ${payload.mobility_access}`,
+      `<strong>점자블럭</strong> 설치 ${payload.braille_block_installed ? "있음" : "없음"} · 훼손 ${payload.braille_block_damaged ? "있음" : "없음"}`,
+      `<strong>점자 안내</strong> ${payload.guidance_status} · ${payload.readability}`,
+      `<strong>평가</strong> ${payload.user_rating}점`
+    ].join("<br>");
+  }
+
+  function toBase64Json(payload) {
+    const json = JSON.stringify(payload);
+    return btoa(unescape(encodeURIComponent(json)));
+  }
+
+  async function startFlow() {
+    startBtn.disabled = true;
+    saveBtn.disabled = true;
+    fallbackBox.style.display = "none";
+    previewBox.style.display = "none";
+    showHeard("");
+
+    try {
+      setStatus("GPS 확인");
+      showQuestion("현재 위치를 확인하고 있습니다.");
+      const position = await getPosition();
+      const payload = {
+        report_id: (crypto.randomUUID ? crypto.randomUUID() : `gps-${Date.now()}`),
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+        raw_answers: {}
+      };
+
+      for (const question of questions) {
+        setStatus("질문 중");
+        showQuestion(question.prompt);
+        await speak(question.prompt);
+        setStatus("듣는 중");
+        showHeard("말씀해주세요.");
+        const heard = await listen();
+        payload.raw_answers[question.key] = heard;
+        payload[question.key] = question.parse(heard);
+        showHeard(`인식됨: ${heard}`);
+      }
+
+      state.payload = payload;
+      renderPreview(payload);
+      setStatus("저장 가능");
+      showQuestion("답변이 정리되었습니다. 지도에 저장을 눌러주세요.");
+      saveBtn.disabled = false;
+    } catch (error) {
+      setStatus("오류");
+      showQuestion(error.message || "GPS 또는 음성 인식에 실패했습니다.");
+      showHeard("브라우저의 위치와 마이크 권한을 확인해주세요.");
+      startBtn.disabled = false;
+    }
+  }
+
+  function savePayload() {
+    if (!state.payload) return;
+    const encoded = toBase64Json(state.payload);
+    try {
+      const target = new URL(window.parent.location.href);
+      target.searchParams.set(queryParam, encoded);
+      window.parent.location.href = target.toString();
+    } catch (error) {
+      fallbackBox.style.display = "block";
+      fallbackBox.value = JSON.stringify(state.payload, null, 2);
+      setStatus("복사 필요");
+      showQuestion("자동 저장이 차단되었습니다. 아래 데이터를 복사해 개발자에게 전달해주세요.");
+    }
+  }
+
+  startBtn.addEventListener("click", startFlow);
+  saveBtn.addEventListener("click", savePayload);
+</script>
+"""
+
+
+def render_voice_gps_recorder() -> None:
+    components.html(
+        VOICE_GPS_RECORDER_HTML.replace("__QUERY_PARAM__", VOICE_REPORT_QUERY_PARAM),
+        height=430,
+        scrolling=False,
     )
 
 
@@ -1065,6 +1844,7 @@ else:
 station_source = "postgis" if postgis_stations else "sample"
 initial_stations = postgis_stations if postgis_stations else SAMPLE_STATIONS
 sync_station_state(station_source, initial_stations)
+process_voice_report_query()
 
 with left_col:
     postgis_status(postgres_config, postgis_stations, postgis_error, postgis_row_count)
@@ -1095,13 +1875,17 @@ with map_col:
         st.session_state.selected_station_id,
         use_station_connections=station_source == "postgis",
         postgis_geojson=postgis_geojson,
+        location_reports=st.session_state.location_reports,
     )
     map_state = st_folium(
         subway_map,
         height=720,
         use_container_width=True,
         returned_objects=["last_object_clicked_tooltip"],
-        key=f"subway_map_{station_source}_{len(st.session_state.stations)}_{st.session_state.selected_station_id}",
+        key=(
+            f"subway_map_{station_source}_{len(st.session_state.stations)}_"
+            f"{st.session_state.selected_station_id}_{len(st.session_state.location_reports)}"
+        ),
     )
     clicked_tooltip = map_state.get("last_object_clicked_tooltip") if map_state else None
     if clicked_tooltip:
@@ -1113,6 +1897,18 @@ with map_col:
 
 with form_col:
     st.markdown("### 접근성 정보 제보")
+    if st.session_state.get("voice_report_notice"):
+        st.success(st.session_state.pop("voice_report_notice"))
+    if st.session_state.get("voice_report_error"):
+        st.warning(st.session_state.pop("voice_report_error"))
+    if st.session_state.get("location_report_db_error"):
+        st.warning(f"GPS 제보 DB 연결 상태를 확인해 주세요: {st.session_state.location_report_db_error}")
+    elif get_report_database_url():
+        st.caption(f"GPS 음성 제보는 DB 테이블 `{GPS_REPORT_TABLE_NAME}`에 적재됩니다.")
+    else:
+        st.caption("GPS 음성 제보 DB 저장을 사용하려면 `PGIS_DATABASE_URL` 또는 `DATABASE_URL`을 설정해 주세요.")
+    render_voice_gps_recorder()
+
     selected_line_color = line_color(selected_station["line"])
     selected_grade_color = GRADE_COLORS.get(selected_station["grade"], GRADE_COLORS["F"])
     st.markdown(
@@ -1136,7 +1932,6 @@ with form_col:
 
         st.markdown("#### 2. 점자블럭 정보")
         braille_block_installed = st.checkbox("점자블럭이 설치되어 있음")
-        braille_block_connected = st.checkbox("점자블럭이 끊김 없이 연결되어 있음")
         braille_block_damaged = st.checkbox("점자블럭이 훼손되어 있음")
 
         st.markdown("#### 3. 점자 안내 정보")
@@ -1191,7 +1986,6 @@ with form_col:
             "station_name": selected_station["name"],
             "mobility_access": mobility_access,
             "braille_block_installed": braille_block_installed,
-            "braille_block_connected": braille_block_connected,
             "braille_block_damaged": braille_block_damaged,
             "braille_map": braille_map,
             "braille_sign": braille_sign,
@@ -1236,5 +2030,14 @@ with form_col:
             for report in reversed(st.session_state.reports[-5:]):
                 st.write(
                     f'{report["submitted_at"]} · {report["station_name"]} · '
+                    f'{report["total"]}점 ({report["grade"]}등급) · {report["submitter_name"]}'
+                )
+
+    if st.session_state.location_reports:
+        with st.expander("GPS 음성 제보 내역", expanded=False):
+            for report in reversed(st.session_state.location_reports[-5:]):
+                st.write(
+                    f'{report["submitted_at"]} · '
+                    f'{float(report["latitude"]):.5f}, {float(report["longitude"]):.5f} · '
                     f'{report["total"]}점 ({report["grade"]}등급) · {report["submitter_name"]}'
                 )
