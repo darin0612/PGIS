@@ -1,6 +1,5 @@
 import html
 import json
-import math
 import os
 import re
 from datetime import date
@@ -8,7 +7,6 @@ from typing import Any
 
 import folium
 import streamlit as st
-import streamlit.components.v1 as components
 from streamlit_folium import st_folium
 
 
@@ -617,9 +615,6 @@ def add_subway_line_layers(subway_map: folium.Map) -> None:
 
 def station_sort_key(station: dict[str, Any]) -> tuple[str, int, int | str]:
     station_id = str(station.get("id", ""))
-    suffix_match = re.search(r"-(\d+)$", station_id)
-    if suffix_match:
-        return (station.get("line", ""), 0, int(suffix_match.group(1)))
     if station_id.isdigit():
         return (station.get("line", ""), 0, int(station_id))
     return (station.get("line", ""), 1, station_id)
@@ -724,296 +719,6 @@ def build_map(
 
     folium.LayerControl(collapsed=True).add_to(subway_map)
     return subway_map
-
-
-def station_name_centers(stations: list[dict[str, Any]]) -> dict[str, tuple[float, float]]:
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for station in stations:
-        grouped.setdefault(station["name"], []).append(station)
-
-    centers = {}
-    for station_name, station_group in grouped.items():
-        latitude = sum(station["latitude"] for station in station_group) / len(station_group)
-        longitude = sum(station["longitude"] for station in station_group) / len(station_group)
-        centers[station_name] = (latitude, longitude)
-    return centers
-
-
-def compressed_axis(value: float, center: float, spread: float) -> float:
-    return math.asinh((value - center) / spread)
-
-
-def build_schematic_positions(
-    stations: list[dict[str, Any]],
-    width: int,
-    height: int,
-    margin: int,
-) -> dict[str, tuple[int, int]]:
-    centers = station_name_centers(stations)
-    center_latitude = 37.5663
-    center_longitude = 126.9882
-    projected_values = []
-
-    for station in stations:
-        latitude, longitude = centers[station["name"]]
-        projected_values.append(
-            (
-                compressed_axis(longitude, center_longitude, 0.13),
-                compressed_axis(latitude, center_latitude, 0.09),
-            )
-        )
-
-    min_x = min(x for x, _ in projected_values)
-    max_x = max(x for x, _ in projected_values)
-    min_y = min(y for _, y in projected_values)
-    max_y = max(y for _, y in projected_values)
-
-    def scale_x(value: float) -> int:
-        if max_x == min_x:
-            return width // 2
-        raw = margin + ((value - min_x) / (max_x - min_x)) * (width - margin * 2)
-        return int(round(raw / 10) * 10)
-
-    def scale_y(value: float) -> int:
-        if max_y == min_y:
-            return height // 2
-        raw = margin + ((max_y - value) / (max_y - min_y)) * (height - margin * 2)
-        return int(round(raw / 10) * 10)
-
-    positions = {}
-    for station in stations:
-        latitude, longitude = centers[station["name"]]
-        x_value = compressed_axis(longitude, center_longitude, 0.13)
-        y_value = compressed_axis(latitude, center_latitude, 0.09)
-        positions[station["id"]] = (scale_x(x_value), scale_y(y_value))
-    return positions
-
-
-def svg_station_label(station: dict[str, Any], x: int, y: int, selected: bool, transfer_names: set[str]) -> str:
-    station_id = str(station.get("id", ""))
-    suffix_match = re.search(r"-(\d+)$", station_id)
-    station_index = int(suffix_match.group(1)) if suffix_match else 1
-    is_major = station["name"] in transfer_names or selected or station_index % 2 == 1
-    if not is_major:
-        return ""
-
-    label = html.escape(station["name"])
-    text_class = "station-label selected-label" if selected else "station-label"
-    dy = -16 if selected else -9
-    return f'<text class="{text_class}" x="{x + 9}" y="{y + dy}">{label}</text>'
-
-
-def render_schematic_diagram(stations: list[dict[str, Any]], selected_id: str | None) -> str:
-    width = 1600
-    height = 920
-    margin = 56
-    positions = build_schematic_positions(stations, width, height, margin)
-    selected_station = next((station for station in stations if station["id"] == selected_id), None)
-    line_groups: dict[str, list[dict[str, Any]]] = {}
-    name_counts: dict[str, int] = {}
-
-    for station in stations:
-        line_groups.setdefault(station["line"], []).append(station)
-        name_counts[station["name"]] = name_counts.get(station["name"], 0) + 1
-
-    transfer_names = {name for name, count in name_counts.items() if count > 1}
-    line_svg = []
-    station_svg = []
-    label_svg = []
-
-    for line_name, line_stations in line_groups.items():
-        ordered_stations = sorted(line_stations, key=station_sort_key)
-        path_points = [positions[station["id"]] for station in ordered_stations if station["id"] in positions]
-        if len(path_points) < 2:
-            continue
-
-        points = " ".join(f"{x},{y}" for x, y in path_points)
-        color = line_color(line_name)
-        line_title = html.escape(line_name)
-        line_svg.append(
-            f'<polyline class="schematic-line-casing" points="{points}"><title>{line_title}</title></polyline>'
-        )
-        line_svg.append(
-            f'<polyline class="schematic-line" points="{points}" stroke="{color}"><title>{line_title}</title></polyline>'
-        )
-
-    for station in stations:
-        x, y = positions[station["id"]]
-        selected = selected_station is not None and station["id"] == selected_station["id"]
-        grade = html.escape(station["grade"])
-        station_name = html.escape(station["name"])
-        line_name = html.escape(station["line"])
-        grade_color = GRADE_COLORS.get(station["grade"], GRADE_COLORS["F"])
-        text_color = GRADE_TEXT_COLORS.get(station["grade"], "#ffffff")
-        station_class = "schematic-station"
-        if station["name"] in transfer_names:
-            station_class += " transfer-station"
-        if selected:
-            station_class += " selected-station"
-
-        if station["name"] in transfer_names:
-            marker_shape = f'<rect class="station-box" x="{x - 7}" y="{y - 10}" width="14" height="20" rx="2" />'
-            marker_dot = f'<circle class="station-dot" cx="{x}" cy="{y}" r="3.2" />'
-        else:
-            marker_shape = f'<circle class="station-point" cx="{x}" cy="{y}" r="4.2" />'
-            marker_dot = ""
-        badge_radius = 12 if selected else 8
-        badge_x = x + (13 if selected else 10)
-        badge_y = y - (13 if selected else 10)
-
-        station_svg.append(
-            f"""
-            <g class="{station_class}">
-              <title>{station_name} · {line_name} · {grade}등급</title>
-              {marker_shape}
-              {marker_dot}
-              <circle class="grade-badge" cx="{badge_x}" cy="{badge_y}" r="{badge_radius}" style="fill:{grade_color}" />
-              <text class="grade-badge-text" x="{badge_x}" y="{badge_y + 4}" fill="{text_color}">{grade}</text>
-            </g>
-            """
-        )
-        label_svg.append(svg_station_label(station, x, y, selected, transfer_names))
-
-    selected_caption = ""
-    selected_x = width // 2
-    selected_y = height // 2
-    if selected_station:
-        selected_x, selected_y = positions[selected_station["id"]]
-        selected_caption = (
-            f'{html.escape(selected_station["name"])} · '
-            f'{html.escape(selected_station["line"])} · '
-            f'{selected_station["grade"]}등급'
-        )
-
-    return f"""
-    <style>
-      .schematic-shell {{
-        height: 720px;
-        overflow: auto;
-        background: #ffffff;
-        border: 1px solid #EAF6DB;
-        border-radius: 8px;
-        box-shadow: inset 0 0 0 1px rgba(64,91,54,.05);
-      }}
-      .schematic-toolbar {{
-        position: sticky;
-        top: 0;
-        z-index: 5;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        min-height: 42px;
-        padding: 9px 14px;
-        background: rgba(255,255,255,.94);
-        border-bottom: 1px solid #EAF6DB;
-        font: 13px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        color: #405B36;
-      }}
-      .schematic-title {{
-        font-weight: 800;
-      }}
-      .schematic-selected {{
-        margin-left: auto;
-        color: #516961;
-      }}
-      .schematic-canvas {{
-        display: block;
-        width: {width}px;
-        height: {height}px;
-        background: #ffffff;
-      }}
-      .schematic-line-casing {{
-        fill: none;
-        stroke: #ffffff;
-        stroke-width: 8;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-      }}
-      .schematic-line {{
-        fill: none;
-        stroke-width: 4.5;
-        stroke-linecap: round;
-        stroke-linejoin: round;
-      }}
-      .schematic-station .station-point,
-      .schematic-station .station-box {{
-        fill: #ffffff;
-        stroke: #ffffff;
-        stroke-width: 1.8;
-      }}
-      .schematic-station .grade-badge {{
-        stroke: #ffffff;
-        stroke-width: 2;
-        filter: drop-shadow(0 1px 2px rgba(0,0,0,.28));
-      }}
-      .schematic-station .grade-badge-text {{
-        font: 8px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        font-weight: 900;
-        text-anchor: middle;
-        pointer-events: none;
-      }}
-      .transfer-station .station-box {{
-        fill: #ffffff;
-        stroke: #1f2933;
-        stroke-width: 1.6;
-      }}
-      .transfer-station .station-dot {{
-        fill: #1f2933;
-        stroke: none;
-      }}
-      .selected-station .station-point,
-      .selected-station .station-box,
-      .selected-station .grade-badge {{
-        stroke: #C44545;
-        stroke-width: 3;
-        filter: drop-shadow(0 1px 2px rgba(0,0,0,.22));
-      }}
-      .selected-station .grade-badge-text {{
-        font-size: 11px;
-      }}
-      .station-label {{
-        font: 11px/1.1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        font-weight: 700;
-        fill: #111827;
-        paint-order: stroke;
-        stroke: #ffffff;
-        stroke-width: 5px;
-        stroke-linejoin: round;
-      }}
-      .selected-label {{
-        font-size: 14px;
-        font-weight: 900;
-        fill: #111827;
-      }}
-    </style>
-    <div class="schematic-shell">
-      <div class="schematic-toolbar">
-        <span class="schematic-title">서울 지하철 접근성 개략도</span>
-        <span>노선색 · 등급 원형 역 표시</span>
-        <span class="schematic-selected">{selected_caption}</span>
-      </div>
-      <svg class="schematic-canvas" viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg">
-        <g class="line-layer">
-          {''.join(line_svg)}
-        </g>
-        <g class="station-layer">
-          {''.join(station_svg)}
-        </g>
-        <g class="label-layer">
-          {''.join(label_svg)}
-        </g>
-      </svg>
-    </div>
-    <script>
-      const shell = document.querySelector('.schematic-shell');
-      if (shell) {{
-        requestAnimationFrame(() => {{
-          shell.scrollLeft = Math.max(0, {selected_x} - shell.clientWidth / 2);
-          shell.scrollTop = Math.max(0, {selected_y} - shell.clientHeight / 2);
-        }});
-      }}
-    </script>
-    """
 
 
 def station_dataset_key(source: str, stations: list[dict[str, Any]]) -> str:
@@ -1281,11 +986,26 @@ with left_col:
 
 
 with map_col:
-    schematic_html = render_schematic_diagram(
+    subway_map = build_map(
         st.session_state.stations,
         st.session_state.selected_station_id,
+        use_station_connections=station_source == "postgis",
+        postgis_geojson=postgis_geojson,
     )
-    components.html(schematic_html, height=720, scrolling=False)
+    map_state = st_folium(
+        subway_map,
+        height=720,
+        use_container_width=True,
+        returned_objects=["last_object_clicked_tooltip"],
+        key=f"subway_map_{station_source}_{len(st.session_state.stations)}_{st.session_state.selected_station_id}",
+    )
+    clicked_tooltip = map_state.get("last_object_clicked_tooltip") if map_state else None
+    if clicked_tooltip:
+        clicked_name = clicked_tooltip.split(" · ", 1)[0]
+        clicked_station = next((station for station in st.session_state.stations if station["name"] == clicked_name), None)
+        if clicked_station and clicked_station["id"] != st.session_state.selected_station_id:
+            st.session_state.selected_station_id = clicked_station["id"]
+            st.rerun()
 
 with form_col:
     st.markdown("### 접근성 정보 제보")
