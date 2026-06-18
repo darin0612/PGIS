@@ -843,6 +843,8 @@ def render_schematic_diagram(stations: list[dict[str, Any]], selected_id: str | 
         grade = html.escape(station["grade"])
         station_name = html.escape(station["name"])
         line_name = html.escape(station["line"])
+        grade_color = GRADE_COLORS.get(station["grade"], GRADE_COLORS["F"])
+        text_color = GRADE_TEXT_COLORS.get(station["grade"], "#ffffff")
         station_class = "schematic-station"
         if station["name"] in transfer_names:
             station_class += " transfer-station"
@@ -850,11 +852,14 @@ def render_schematic_diagram(stations: list[dict[str, Any]], selected_id: str | 
             station_class += " selected-station"
 
         if station["name"] in transfer_names:
-            marker_shape = f'<rect x="{x - 7}" y="{y - 10}" width="14" height="20" rx="2" />'
-            marker_dot = f'<circle cx="{x}" cy="{y}" r="3.2" />'
+            marker_shape = f'<rect class="station-box" x="{x - 7}" y="{y - 10}" width="14" height="20" rx="2" />'
+            marker_dot = f'<circle class="station-dot" cx="{x}" cy="{y}" r="3.2" />'
         else:
-            marker_shape = f'<circle cx="{x}" cy="{y}" r="4.2" />'
+            marker_shape = f'<circle class="station-point" cx="{x}" cy="{y}" r="4.2" />'
             marker_dot = ""
+        badge_radius = 12 if selected else 8
+        badge_x = x + (13 if selected else 10)
+        badge_y = y - (13 if selected else 10)
 
         station_svg.append(
             f"""
@@ -862,6 +867,8 @@ def render_schematic_diagram(stations: list[dict[str, Any]], selected_id: str | 
               <title>{station_name} · {line_name} · {grade}등급</title>
               {marker_shape}
               {marker_dot}
+              <circle class="grade-badge" cx="{badge_x}" cy="{badge_y}" r="{badge_radius}" style="fill:{grade_color}" />
+              <text class="grade-badge-text" x="{badge_x}" y="{badge_y + 4}" fill="{text_color}">{grade}</text>
             </g>
             """
         )
@@ -928,26 +935,41 @@ def render_schematic_diagram(stations: list[dict[str, Any]], selected_id: str | 
         stroke-linecap: round;
         stroke-linejoin: round;
       }}
-      .schematic-station circle,
-      .schematic-station rect {{
+      .schematic-station .station-point,
+      .schematic-station .station-box {{
         fill: #ffffff;
         stroke: #ffffff;
         stroke-width: 1.8;
       }}
-      .transfer-station rect {{
+      .schematic-station .grade-badge {{
+        stroke: #ffffff;
+        stroke-width: 2;
+        filter: drop-shadow(0 1px 2px rgba(0,0,0,.28));
+      }}
+      .schematic-station .grade-badge-text {{
+        font: 8px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font-weight: 900;
+        text-anchor: middle;
+        pointer-events: none;
+      }}
+      .transfer-station .station-box {{
         fill: #ffffff;
         stroke: #1f2933;
         stroke-width: 1.6;
       }}
-      .transfer-station circle {{
+      .transfer-station .station-dot {{
         fill: #1f2933;
         stroke: none;
       }}
-      .selected-station circle,
-      .selected-station rect {{
+      .selected-station .station-point,
+      .selected-station .station-box,
+      .selected-station .grade-badge {{
         stroke: #C44545;
         stroke-width: 3;
         filter: drop-shadow(0 1px 2px rgba(0,0,0,.22));
+      }}
+      .selected-station .grade-badge-text {{
+        font-size: 11px;
       }}
       .station-label {{
         font: 11px/1.1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
