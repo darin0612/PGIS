@@ -790,20 +790,23 @@ def build_schematic_positions(
 
 
 def svg_station_label(station: dict[str, Any], x: int, y: int, selected: bool, transfer_names: set[str]) -> str:
-    is_major = station["name"] in transfer_names or selected
+    station_id = str(station.get("id", ""))
+    suffix_match = re.search(r"-(\d+)$", station_id)
+    station_index = int(suffix_match.group(1)) if suffix_match else 1
+    is_major = station["name"] in transfer_names or selected or station_index % 2 == 1
     if not is_major:
         return ""
 
     label = html.escape(station["name"])
     text_class = "station-label selected-label" if selected else "station-label"
-    dy = -22 if selected else -15
-    return f'<text class="{text_class}" x="{x + 13}" y="{y + dy}">{label}</text>'
+    dy = -16 if selected else -9
+    return f'<text class="{text_class}" x="{x + 9}" y="{y + dy}">{label}</text>'
 
 
 def render_schematic_diagram(stations: list[dict[str, Any]], selected_id: str | None) -> str:
-    width = 1680
-    height = 1040
-    margin = 74
+    width = 1600
+    height = 920
+    margin = 56
     positions = build_schematic_positions(stations, width, height, margin)
     selected_station = next((station for station in stations if station["id"] == selected_id), None)
     line_groups: dict[str, list[dict[str, Any]]] = {}
@@ -840,18 +843,25 @@ def render_schematic_diagram(stations: list[dict[str, Any]], selected_id: str | 
         grade = html.escape(station["grade"])
         station_name = html.escape(station["name"])
         line_name = html.escape(station["line"])
-        grade_color = GRADE_COLORS.get(station["grade"], GRADE_COLORS["F"])
-        text_color = GRADE_TEXT_COLORS.get(station["grade"], "#ffffff")
-        radius = 15 if selected else 10
-        font_size = 13 if selected else 9
-        station_class = "schematic-station selected-station" if selected else "schematic-station"
+        station_class = "schematic-station"
+        if station["name"] in transfer_names:
+            station_class += " transfer-station"
+        if selected:
+            station_class += " selected-station"
+
+        if station["name"] in transfer_names:
+            marker_shape = f'<rect x="{x - 7}" y="{y - 10}" width="14" height="20" rx="2" />'
+            marker_dot = f'<circle cx="{x}" cy="{y}" r="3.2" />'
+        else:
+            marker_shape = f'<circle cx="{x}" cy="{y}" r="4.2" />'
+            marker_dot = ""
 
         station_svg.append(
             f"""
             <g class="{station_class}">
               <title>{station_name} · {line_name} · {grade}등급</title>
-              <circle cx="{x}" cy="{y}" r="{radius}" fill="{grade_color}" />
-              <text x="{x}" y="{y + 4}" font-size="{font_size}" fill="{text_color}">{grade}</text>
+              {marker_shape}
+              {marker_dot}
             </g>
             """
         )
@@ -903,51 +913,54 @@ def render_schematic_diagram(stations: list[dict[str, Any]], selected_id: str | 
         display: block;
         width: {width}px;
         height: {height}px;
-        background:
-          linear-gradient(#f3f6ef 1px, transparent 1px),
-          linear-gradient(90deg, #f3f6ef 1px, transparent 1px),
-          #ffffff;
-        background-size: 80px 80px;
+        background: #ffffff;
       }}
       .schematic-line-casing {{
         fill: none;
         stroke: #ffffff;
-        stroke-width: 9;
+        stroke-width: 8;
         stroke-linecap: round;
         stroke-linejoin: round;
       }}
       .schematic-line {{
         fill: none;
-        stroke-width: 5;
+        stroke-width: 4.5;
         stroke-linecap: round;
         stroke-linejoin: round;
       }}
-      .schematic-station circle {{
+      .schematic-station circle,
+      .schematic-station rect {{
+        fill: #ffffff;
         stroke: #ffffff;
+        stroke-width: 1.8;
+      }}
+      .transfer-station rect {{
+        fill: #ffffff;
+        stroke: #1f2933;
+        stroke-width: 1.6;
+      }}
+      .transfer-station circle {{
+        fill: #1f2933;
+        stroke: none;
+      }}
+      .selected-station circle,
+      .selected-station rect {{
+        stroke: #C44545;
         stroke-width: 3;
-        filter: drop-shadow(0 1px 2px rgba(0,0,0,.24));
-      }}
-      .schematic-station text {{
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        font-weight: 800;
-        text-anchor: middle;
-        pointer-events: none;
-      }}
-      .selected-station circle {{
-        stroke: #111827;
-        stroke-width: 3.5;
+        filter: drop-shadow(0 1px 2px rgba(0,0,0,.22));
       }}
       .station-label {{
-        font: 10px/1.1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font: 11px/1.1 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         font-weight: 700;
-        fill: #29322c;
+        fill: #111827;
         paint-order: stroke;
         stroke: #ffffff;
-        stroke-width: 4px;
+        stroke-width: 5px;
         stroke-linejoin: round;
       }}
       .selected-label {{
-        font-size: 13px;
+        font-size: 14px;
+        font-weight: 900;
         fill: #111827;
       }}
     </style>
