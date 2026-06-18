@@ -842,23 +842,23 @@ st.markdown(
     """
     <style>
       * { box-sizing: border-box; }
-      .stApp { background: #C2B7A5; }
+      .stApp { background: #FFFBEF; }
       .block-container { padding: 1rem 1.25rem 1.25rem; max-width: 100%; }
       .app-header {
         height: 60px; margin: 0 -1.25rem 0; padding: 0 20px;
-        background: #A74B23; color: white; display: flex; align-items: center;
+        background: #FFAF87; color: white; display: flex; align-items: center;
         box-shadow: 0 2px 4px rgba(0,0,0,.1); gap: 16px;
       }
       .app-header h1 { font-size: 20px; font-weight: 700; margin: 0; }
       .app-subtitle { margin-left: auto; font-size: 14px; }
-      .project-copy { color: #1D352D; font-size: 14px; line-height: 1.6; margin-bottom: 14px; }
+      .project-copy { color: #516961; font-size: 14px; line-height: 1.6; margin-bottom: 14px; }
       .inline-help-link {
         display: inline-flex; align-items: center; justify-content: center;
         width: 22px; height: 22px; margin-left: 4px; border-radius: 4px;
-        color: #3D727D; text-decoration: none; vertical-align: middle;
+        color: #A1D6E1; text-decoration: none; vertical-align: middle;
         font-size: 13px; font-weight: 700;
       }
-      .inline-help-link:hover { background: #869277; color: #0D1803; text-decoration: none; }
+      .inline-help-link:hover { background: #EAF6DB; color: #405B36; text-decoration: none; }
       a[data-testid="stMarkdownHeaderLink"],
       .stMarkdown h1 a,
       .stMarkdown h2 a,
@@ -870,10 +870,10 @@ st.markdown(
         display: none !important;
       }
       .station-card {
-        background: #CDC8BF; border-radius: 8px; padding: 16px;
-        box-shadow: 0 1px 3px rgba(61,114,125,.22); border: 1px solid #869277;
+        background: #FFFFFF; border-radius: 8px; padding: 16px;
+        box-shadow: 0 1px 3px rgba(61,114,125,.16); border: 1px solid #EAF6DB;
       }
-      .station-card h3 { font-size: 20px; font-weight: 700; margin: 0 0 12px; color: #0D1803; }
+      .station-card h3 { font-size: 20px; font-weight: 700; margin: 0 0 12px; color: #405B36; }
       .line-badge {
         display: inline-block; padding: 4px 12px; border-radius: 4px;
         font-size: 14px; margin-bottom: 12px;
@@ -890,23 +890,23 @@ st.markdown(
         align-items: center; justify-content: center;
         font-size: 28px; font-weight: 700;
       }
-      .score-number { font-size: 32px; font-weight: 700; color: #0D1803; line-height: 1.1; }
-      .muted { font-size: 12px; color: #3D727D; }
+      .score-number { font-size: 32px; font-weight: 700; color: #405B36; line-height: 1.1; }
+      .muted { font-size: 12px; color: #6FA4AF; }
       .meta-row { font-size: 14px; margin: 8px 0; display: flex; gap: 6px; }
-      .meta-row span { color: #3D727D; }
-      .meta-row strong { color: #0D1803; }
-      .legend-row { display: flex; align-items: center; gap: 8px; color: #1D352D; font-size: 14px; margin: 6px 0; }
+      .meta-row span { color: #6FA4AF; }
+      .meta-row strong { color: #405B36; }
+      .legend-row { display: flex; align-items: center; gap: 8px; color: #516961; font-size: 14px; margin: 6px 0; }
       .legend-row span { width: 24px; height: 16px; border-radius: 2px; display: inline-block; }
       .compact-marker div {
         border-width: 2px !important;
         box-shadow: 0 1px 3px rgba(0,0,0,.25) !important;
       }
       .report-summary {
-        border: 1px solid #869277; border-radius: 8px; padding: 12px 14px;
-        background: #CDC8BF; margin-top: 10px; font-size: 14px;
+        border: 1px solid #EAF6DB; border-radius: 8px; padding: 12px 14px;
+        background: #FFFFFF; margin-top: 10px; font-size: 14px;
       }
-      .stButton > button[kind="primary"] { background: #A74B23; border-color: #A74B23; }
-      .stButton > button[kind="primary"]:hover { background: #973D1A; border-color: #973D1A; }
+      .stButton > button[kind="primary"] { background: #FFAF87; border-color: #FFAF87; }
+      .stButton > button[kind="primary"]:hover { background: #FBA17E; border-color: #FBA17E; }
       input[type="radio"],
       input[type="checkbox"] {
         accent-color: #C44545;
