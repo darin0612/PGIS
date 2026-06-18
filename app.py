@@ -34,19 +34,19 @@ GRADE_TEXT_COLORS = {
 }
 
 LINE_COLORS = {
-    "1호선": "#8EA8C8",
-    "2호선": "#8DC6A3",
-    "3호선": "#E5B487",
-    "4호선": "#8DCDE3",
-    "5호선": "#BEA9C8",
-    "6호선": "#D2B08D",
-    "7호선": "#B7BD8C",
-    "8호선": "#E6A0BD",
-    "9호선": "#D2CAB4",
-    "경의중앙선": "#A7D6C7",
-    "공항철도": "#8EC7DF",
-    "신분당선": "#DE8FA4",
-    "수인분당선": "#E8C982",
+    "1호선": "#6F90BA",
+    "2호선": "#65B984",
+    "3호선": "#D99B5B",
+    "4호선": "#62B9D8",
+    "5호선": "#AA8AB8",
+    "6호선": "#C49462",
+    "7호선": "#A5AE68",
+    "8호선": "#D978A5",
+    "9호선": "#C3B68E",
+    "경의중앙선": "#7CC7B1",
+    "공항철도": "#61B6D9",
+    "신분당선": "#D26483",
+    "수인분당선": "#DDB04D",
 }
 
 DEFAULT_MAP_CENTER = [37.5663, 126.9882]
@@ -830,20 +830,16 @@ def grade_legend() -> None:
     ]:
         text_color = GRADE_TEXT_COLORS.get(grade, "#ffffff")
         rows.append(
-            f"""
-            <div class="legend-row grade-legend-row">
-              <span class="legend-grade" style="background:{GRADE_COLORS[grade]};color:{text_color}">{grade}</span>
-              <strong>{label}</strong>
-            </div>
-            """
+            f'<div class="legend-row grade-legend-row">'
+            f'<span class="legend-grade" style="background:{GRADE_COLORS[grade]};color:{text_color}">{grade}</span>'
+            f'<strong>{label}</strong>'
+            f'</div>'
         )
     st.markdown(
-        f"""
-        <section class="legend-island grade-legend">
-          <div class="legend-title">등급 기준</div>
-          {''.join(rows)}
-        </section>
-        """,
+        f'<section class="legend-island grade-legend">'
+        f'<div class="legend-title">등급 기준</div>'
+        f'{"".join(rows)}'
+        f'</section>',
         unsafe_allow_html=True,
     )
 
@@ -855,13 +851,11 @@ def subway_line_legend() -> None:
             f'<div class="legend-row line-legend-row"><span style="background:{color}"></span>{line_name}</div>'
         )
     st.markdown(
-        f"""
-        <section class="legend-island route-legend">
-          <div class="legend-title">노선 색상</div>
-          <p>노선은 위치 파악용으로 연하게 표시됩니다.</p>
-          {''.join(rows)}
-        </section>
-        """,
+        f'<section class="legend-island route-legend">'
+        f'<div class="legend-title">노선 색상</div>'
+        f'<p>노선은 위치 파악용으로 연하게 표시됩니다.</p>'
+        f'{"".join(rows)}'
+        f'</section>',
         unsafe_allow_html=True,
     )
 
