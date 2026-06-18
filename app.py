@@ -49,6 +49,10 @@ LINE_COLORS = {
     "수인분당선": "#F5A200",
 }
 
+DEFAULT_MAP_CENTER = [37.5663, 126.9882]
+DEFAULT_MAP_ZOOM = 14
+STATION_DATASET_VERSION = "sample-junggu-default-v1"
+
 SUBWAY_LINE_STATIONS = {
     "1호선": [
         ("인천역", 37.4764, 126.6169), ("동인천역", 37.4754, 126.6326), ("주안역", 37.4650, 126.6807),
@@ -690,17 +694,17 @@ def build_map(
     postgis_geojson: dict[str, Any] | None = None,
 ) -> folium.Map:
     selected = next((station for station in stations if station["id"] == selected_id), None)
-    center = [selected["latitude"], selected["longitude"]] if selected else [37.5665, 126.9780]
-    subway_map = folium.Map(location=center, zoom_start=10, tiles="CartoDB positron", control_scale=True)
+    center = [selected["latitude"], selected["longitude"]] if selected else DEFAULT_MAP_CENTER
+    zoom_start = 10 if use_station_connections else DEFAULT_MAP_ZOOM
+    subway_map = folium.Map(location=center, zoom_start=zoom_start, tiles="CartoDB positron", control_scale=True)
     dense_station_map = len(stations) > 40
 
     if use_station_connections:
         add_station_line_layers(subway_map, stations)
         add_postgis_geometry_layer(subway_map, postgis_geojson)
+        fit_map_to_stations(subway_map, stations)
     else:
         add_subway_line_layers(subway_map)
-
-    fit_map_to_stations(subway_map, stations)
 
     for station in stations:
         if dense_station_map:
@@ -719,7 +723,28 @@ def build_map(
 
 def station_dataset_key(source: str, stations: list[dict[str, Any]]) -> str:
     ids = "|".join(str(station["id"]) for station in stations)
-    return f"{source}:{len(stations)}:{ids}"
+    return f"{STATION_DATASET_VERSION}:{source}:{len(stations)}:{ids}"
+
+
+def preferred_initial_station_id(stations: list[dict[str, Any]]) -> str:
+    preferred_names = [
+        ("시청역", "1호선"),
+        ("을지로입구역", "2호선"),
+        ("종각역", "1호선"),
+        ("광화문역", "5호선"),
+    ]
+    for station_name, line_name in preferred_names:
+        station = next(
+            (
+                item
+                for item in stations
+                if item["name"] == station_name and item["line"] == line_name
+            ),
+            None,
+        )
+        if station:
+            return station["id"]
+    return stations[0]["id"]
 
 
 def sync_station_state(source: str, initial_stations: list[dict[str, Any]]) -> None:
@@ -734,8 +759,14 @@ def sync_station_state(source: str, initial_stations: list[dict[str, Any]]) -> N
     if needs_reset:
         st.session_state.stations = [station.copy() for station in initial_stations]
         available_ids = {station["id"] for station in st.session_state.stations}
+        previous_dataset_key = st.session_state.get("station_dataset_key")
+        should_keep_selection = (
+            current_selected_id in available_ids
+            and st.session_state.get("station_source") == source
+            and previous_dataset_key == dataset_key
+        )
         st.session_state.selected_station_id = (
-            current_selected_id if current_selected_id in available_ids else st.session_state.stations[0]["id"]
+            current_selected_id if should_keep_selection else preferred_initial_station_id(st.session_state.stations)
         )
         st.session_state.station_source = source
         st.session_state.station_dataset_key = dataset_key
@@ -811,23 +842,23 @@ st.markdown(
     """
     <style>
       * { box-sizing: border-box; }
-      .stApp { background: #F4E9D7; }
+      .stApp { background: #C2B7A5; }
       .block-container { padding: 1rem 1.25rem 1.25rem; max-width: 100%; }
       .app-header {
         height: 60px; margin: 0 -1.25rem 0; padding: 0 20px;
-        background: #D97D55; color: white; display: flex; align-items: center;
+        background: #A74B23; color: white; display: flex; align-items: center;
         box-shadow: 0 2px 4px rgba(0,0,0,.1); gap: 16px;
       }
       .app-header h1 { font-size: 20px; font-weight: 700; margin: 0; }
       .app-subtitle { margin-left: auto; font-size: 14px; }
-      .project-copy { color: #4f675f; font-size: 14px; line-height: 1.6; margin-bottom: 14px; }
+      .project-copy { color: #1D352D; font-size: 14px; line-height: 1.6; margin-bottom: 14px; }
       .inline-help-link {
         display: inline-flex; align-items: center; justify-content: center;
         width: 22px; height: 22px; margin-left: 4px; border-radius: 4px;
-        color: #6FA4AF; text-decoration: none; vertical-align: middle;
+        color: #3D727D; text-decoration: none; vertical-align: middle;
         font-size: 13px; font-weight: 700;
       }
-      .inline-help-link:hover { background: #B8C4A9; color: #3f4a35; text-decoration: none; }
+      .inline-help-link:hover { background: #869277; color: #0D1803; text-decoration: none; }
       a[data-testid="stMarkdownHeaderLink"],
       .stMarkdown h1 a,
       .stMarkdown h2 a,
@@ -839,10 +870,10 @@ st.markdown(
         display: none !important;
       }
       .station-card {
-        background: #fffaf1; border-radius: 8px; padding: 16px;
-        box-shadow: 0 1px 3px rgba(111,164,175,.2); border: 1px solid #B8C4A9;
+        background: #CDC8BF; border-radius: 8px; padding: 16px;
+        box-shadow: 0 1px 3px rgba(61,114,125,.22); border: 1px solid #869277;
       }
-      .station-card h3 { font-size: 20px; font-weight: 700; margin: 0 0 12px; color: #3f4a35; }
+      .station-card h3 { font-size: 20px; font-weight: 700; margin: 0 0 12px; color: #0D1803; }
       .line-badge {
         display: inline-block; padding: 4px 12px; border-radius: 4px;
         font-size: 14px; margin-bottom: 12px;
@@ -859,23 +890,23 @@ st.markdown(
         align-items: center; justify-content: center;
         font-size: 28px; font-weight: 700;
       }
-      .score-number { font-size: 32px; font-weight: 700; color: #3f4a35; line-height: 1.1; }
-      .muted { font-size: 12px; color: #6FA4AF; }
+      .score-number { font-size: 32px; font-weight: 700; color: #0D1803; line-height: 1.1; }
+      .muted { font-size: 12px; color: #3D727D; }
       .meta-row { font-size: 14px; margin: 8px 0; display: flex; gap: 6px; }
-      .meta-row span { color: #6FA4AF; }
-      .meta-row strong { color: #3f4a35; }
-      .legend-row { display: flex; align-items: center; gap: 8px; color: #4f675f; font-size: 14px; margin: 6px 0; }
+      .meta-row span { color: #3D727D; }
+      .meta-row strong { color: #0D1803; }
+      .legend-row { display: flex; align-items: center; gap: 8px; color: #1D352D; font-size: 14px; margin: 6px 0; }
       .legend-row span { width: 24px; height: 16px; border-radius: 2px; display: inline-block; }
       .compact-marker div {
         border-width: 2px !important;
         box-shadow: 0 1px 3px rgba(0,0,0,.25) !important;
       }
       .report-summary {
-        border: 1px solid #B8C4A9; border-radius: 8px; padding: 12px 14px;
-        background: #fffaf1; margin-top: 10px; font-size: 14px;
+        border: 1px solid #869277; border-radius: 8px; padding: 12px 14px;
+        background: #CDC8BF; margin-top: 10px; font-size: 14px;
       }
-      .stButton > button[kind="primary"] { background: #D97D55; border-color: #D97D55; }
-      .stButton > button[kind="primary"]:hover { background: #c96f4c; border-color: #c96f4c; }
+      .stButton > button[kind="primary"] { background: #A74B23; border-color: #A74B23; }
+      .stButton > button[kind="primary"]:hover { background: #973D1A; border-color: #973D1A; }
       input[type="radio"],
       input[type="checkbox"] {
         accent-color: #C44545;
