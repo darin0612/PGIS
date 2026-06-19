@@ -279,6 +279,11 @@ MOBILITY_ACCESS_SCORES = {
 
 GUIDANCE_OPTIONS = ["둘다 있음", "점자 노선도만 있음", "점자 안내판만 있음", "둘다 없음"]
 READABILITY_OPTIONS = ["정확함", "일부 수정 필요"]
+BRAILLE_BLOCK_OPTIONS = [
+    "점자블럭이 적절히 설치되어 있음",
+    "점자블럭이 설치되어 있지만 훼손되어 있음",
+    "점자블럭이 설치되어 있지 않음",
+]
 
 
 def get_grade(score: int) -> str:
@@ -1972,8 +1977,13 @@ with form_col:
         )
 
         st.markdown("#### 2. 점자블럭 정보")
-        braille_block_installed = st.checkbox("점자블럭이 설치되어 있음")
-        braille_block_damaged = st.checkbox("점자블럭이 훼손되어 있음")
+        braille_block_status = st.radio(
+            "점자블럭 상태",
+            BRAILLE_BLOCK_OPTIONS,
+            horizontal=False,
+        )
+        braille_block_installed = braille_block_status != "점자블럭이 설치되어 있지 않음"
+        braille_block_damaged = braille_block_status == "점자블럭이 설치되어 있지만 훼손되어 있음"
 
         st.markdown("#### 3. 점자 안내 정보")
         guidance_status = st.radio(
