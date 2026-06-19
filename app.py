@@ -22,7 +22,7 @@ st.set_page_config(
 
 GRADE_COLORS = {
     "A": "#087F5B",
-    "B": "#2563EB",
+    "B": "#A3E635",
     "C": "#F59E0B",
     "D": "#EA580C",
     "F": "#DC2626",
@@ -30,7 +30,7 @@ GRADE_COLORS = {
 
 GRADE_TEXT_COLORS = {
     "A": "#ffffff",
-    "B": "#ffffff",
+    "B": "#111827",
     "C": "#111827",
     "D": "#ffffff",
     "F": "#ffffff",
@@ -567,7 +567,7 @@ def load_reports_from_database() -> tuple[list[dict[str, Any]], str | None]:
         return [], str(error)
 
     reports = []
-    for (payload,) in rows:
+    for (payload,) in reversed(rows):
         if isinstance(payload, dict):
             report = payload
         else:
@@ -578,6 +578,25 @@ def load_reports_from_database() -> tuple[list[dict[str, Any]], str | None]:
         if "latitude" in report and "longitude" in report:
             reports.append(report)
     return reports, None
+
+
+def location_report_key(report: dict[str, Any]) -> str:
+    report_id = str(report.get("id") or "").strip()
+    if report_id:
+        return report_id
+    return ":".join(
+        str(report.get(key) or "")
+        for key in ("submitted_at", "latitude", "longitude", "station_id", "station_name")
+    )
+
+
+def merge_location_reports(*sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged = {}
+    for reports in sources:
+        for report in reports:
+            if "latitude" in report and "longitude" in report:
+                merged[location_report_key(report)] = report
+    return sorted(merged.values(), key=lambda report: str(report.get("submitted_at") or ""))
 
 
 def sync_local_reports_to_database() -> str | None:
@@ -614,12 +633,11 @@ def load_reports_from_file() -> list[dict[str, Any]]:
 
 def load_location_reports() -> list[dict[str, Any]]:
     db_reports, db_error = load_reports_from_database()
-    if db_reports:
-        return db_reports
+    file_reports = load_reports_from_file()
 
     if db_error:
         st.session_state.location_report_db_error = db_error
-    return load_reports_from_file()
+    return merge_location_reports(file_reports, db_reports)
 
 
 def append_location_report(report: dict[str, Any]) -> str | None:
@@ -735,8 +753,18 @@ def get_secret_config() -> dict[str, Any]:
 
 def get_postgres_defaults() -> dict[str, Any]:
     secrets = get_secret_config()
+    explicit_enabled = os.getenv("PGIS_POSTGIS_ENABLED")
+    if explicit_enabled is None:
+        explicit_enabled = secrets.get("enabled", secrets.get("postgis_enabled"))
+    has_connection_config = any(
+        os.getenv(key)
+        for key in ("PGHOST", "PGPORT", "PGDATABASE", "PGUSER", "PGPASSWORD", "PGSCHEMA", "PGTABLE")
+    ) or any(
+        secrets.get(key)
+        for key in ("host", "port", "database", "dbname", "user", "password", "schema", "table")
+    )
     return {
-        "enabled": False,
+        "enabled": bool_value(explicit_enabled) if explicit_enabled is not None else has_connection_config,
         "host": os.getenv("PGHOST") or secrets.get("host") or "localhost",
         "port": int(os.getenv("PGPORT") or secrets.get("port") or 5432),
         "dbname": os.getenv("PGDATABASE") or secrets.get("database") or secrets.get("dbname") or "postgres",
@@ -764,10 +792,9 @@ def initialize_postgres_state() -> None:
 
 def render_postgres_controls() -> dict[str, Any]:
     initialize_postgres_state()
-    st.session_state.postgres_enabled = False
 
     return {
-        "enabled": False,
+        "enabled": bool_value(st.session_state.postgres_enabled),
         "host": st.session_state.postgres_host.strip(),
         "port": int(st.session_state.postgres_port),
         "dbname": st.session_state.postgres_dbname.strip(),
@@ -1658,8 +1685,22 @@ st.markdown(
     <style>
       * { box-sizing: border-box; }
       .stApp { background: #F4F5F7; color: #111827; }
-      .block-container { padding: 1rem 1.25rem 1.5rem; max-width: 100%; }
+      [data-testid="stHeader"],
+      .stAppHeader {
+        height: 0 !important; min-height: 0 !important;
+        background: transparent !important; box-shadow: none !important;
+      }
+      [data-testid="stHeader"] > div,
+      .stAppHeader > div {
+        background: transparent !important;
+      }
+      [data-testid="stToolbar"] {
+        top: 10px !important; right: 16px !important; z-index: 1002 !important;
+      }
+      div[data-testid="stDecoration"] { display: none; }
+      .block-container { padding: .75rem 1.25rem 1.5rem; max-width: 100%; }
       .app-header {
+        position: relative; z-index: 1001;
         min-height: 64px; margin: 0 0 16px; padding: 14px 18px;
         background: rgba(255,255,255,.94); color: #111827; display: flex; align-items: center;
         border: 1px solid #E5E7EB; border-radius: 8px;
